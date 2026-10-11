@@ -10,7 +10,23 @@ SPA 静态资源兜底路由的行为测试
 
 用户看到的就是这句毫无意义的解析错误，完全不知道真实原因是
 「功能开关没开」。因此 /api/* 必须返回结构化 JSON 错误。
+
+注意两种部署形态下 SPA 兜底的行为差异：
+  - 有前端产物（frontend/dist 存在）：兜底路由已注册，SPA 路由返回 HTML；
+  - 无前端产物（CI / 纯后端 / 忘了 npm run build）：该路由**根本不注册**，
+    此时 SPA 路径返回 404 才是正确行为。
+frontend/dist 在 .gitignore 里，CI 上必然不存在，因此下面的 SPA 路由
+用例必须显式声明「需要前端产物」这一前置条件，而不是碰运气。
 """
+
+import pytest
+
+from main import _HAS_FRONTEND
+
+requires_frontend = pytest.mark.skipif(
+    not _HAS_FRONTEND,
+    reason="需要先构建前端（frontend/dist 不存在，SPA 兜底路由未注册）",
+)
 
 
 def test_unknown_api_path_returns_json_not_html(client):
@@ -36,9 +52,29 @@ def test_disabled_feature_api_returns_json(client):
     assert "开关" in resp.json()["detail"]
 
 
+@requires_frontend
 def test_spa_routes_still_serve_html(client):
-    """普通前端路由仍要回退到 index.html（不能被上面的改动影响）"""
+    """普通前端路由仍要回退到 index.html（不能被上面的改动影响）
+
+    前置条件：必须先构建前端。没有 index.html 时兜底路由不会注册，
+    该断言本身就不成立（见文件头说明）。
+    """
     resp = client.get("/some/spa/route")
 
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
+
+
+def test_spa_fallback_absent_without_frontend(client):
+    """没有前端产物时，SPA 路径返回 404 是预期行为（而非 500/HTML）
+
+    这条用例在 CI（无 dist）上跑，用来钉住「无前端产物」这一形态的
+    行为，避免上面那条被 skip 后完全没人覆盖。
+    """
+    if _HAS_FRONTEND:
+        pytest.skip("本地已构建前端，兜底路由存在，不适用该断言")
+
+    resp = client.get("/some/spa/route")
+    assert resp.status_code == 404
+    # 即便兜底不存在，也绝不能返回 HTML 让前端调用方误解
+    assert "text/html" not in resp.headers.get("content-type", "")

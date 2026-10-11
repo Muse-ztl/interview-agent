@@ -69,7 +69,15 @@ class _FakeMic:
 
 @pytest.fixture
 def fake_soundcard(monkeypatch):
-    """把 soundcard 替换成可预测的假实现"""
+    """把 soundcard 替换成可预测的假实现
+
+    这里**必须连 IS_WINDOWS 一起伪造**，否则用例只在 Windows 上通过：
+    is_available() 的判定是 `IS_WINDOWS and SC_AVAILABLE and np is not None`，
+    而 monkeypatch 只能假装「依赖装好了」，装不了「系统是 Windows」。
+    在 Linux/macOS 上跑时 IS_WINDOWS 为 False，_resolve_loopback 会直接抛
+    「系统音频捕获仅支持 Windows」，于是所有依赖该 fixture 的用例全红
+    —— 这正是 CI（ubuntu-latest）上 11 个用例失败的原因。
+    """
     mic = _FakeMic()
 
     speakers = [
@@ -77,6 +85,7 @@ def fake_soundcard(monkeypatch):
         types.SimpleNamespace(id="spk-other", name="外接显示器"),
     ]
 
+    monkeypatch.setattr(sa, "IS_WINDOWS", True)
     monkeypatch.setattr(sa, "SC_AVAILABLE", True)
     monkeypatch.setattr(sa, "SC_IMPORT_ERROR", "")
 
@@ -339,6 +348,10 @@ def test_device_error_reported_on_failure(monkeypatch):
         def recorder(self, **kwargs):
             raise RuntimeError("设备被独占")
 
+    # 这个用例自建假的 sc（不用 fake_soundcard），因此也要自己伪造平台：
+    # is_available() 同时看 IS_WINDOWS，只 mock SC_AVAILABLE 在 Linux 上
+    # 会先撞到「仅支持 Windows」而拿不到想验证的「回环捕获失败」。
+    monkeypatch.setattr(sa, "IS_WINDOWS", True)
     monkeypatch.setattr(sa, "SC_AVAILABLE", True)
     monkeypatch.setattr(
         sa, "sc",

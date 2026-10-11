@@ -43,6 +43,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+# 应用级 404 兜底要用到（见文件末尾的 api_not_found_handler）
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
 from routers import chat, upload, interview, position, knowledge, auth, sessions, analytics, question_bank, screenshot, system_audio
@@ -340,6 +342,41 @@ if _HAS_FRONTEND:
 
     logger.info(f"Frontend static files served from: {FRONTEND_DIST}")
     logger.info("API routes also available under /api prefix for production SPA mode")
+
+
+# ============ /api/* 的 404 兜底（与前端的构建与否无关） ============
+# 上面那个 SPA 兜底路由只在**存在前端产物**时注册。但「/api 路径返回结构化
+# JSON 而不是裸 404」这件事跟前端产物没有任何关系，它是后端自身的契约：
+#
+#   - 前端拿 HTML 去 JSON.parse 会报
+#     「Unexpected token '<', "<!doctype "... is not valid JSON」，
+#     用户完全看不出真实原因；
+#   - 而 Starlette 默认的 404 只是 `{"detail": "Not Found"}`，
+#     同样看不出「多半是功能开关没开、路由压根没注册」。
+#
+# 典型场景：CI / 纯后端部署（frontend/dist 不存在）时访问 /api/*，
+# 以及本地开发忘了 npm run build。之前这些情况下拿到的是裸 404，
+# 排查成本很高。因此这里在应用级统一兜底。
+@app.exception_handler(StarletteHTTPException)
+async def api_not_found_handler(request: Request, exc: StarletteHTTPException):
+    """把 /api/* 的 404 换成带排查提示的 JSON；其余路径保持原样"""
+    if exc.status_code == 404 and request.url.path.startswith("/api/"):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "detail": (
+                    f"接口 {request.url.path} 不存在。"
+                    "若这是某个功能（如系统音频捕获）的接口，"
+                    "通常是该功能的开关未开启导致路由未注册，"
+                    "请在 .env 中设置对应开关后重启服务。"
+                )
+            },
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=getattr(exc, "headers", None),
+    )
 
 
 # ============ 独立窗口模式分发（必须在 app 构建完成之后） ============
