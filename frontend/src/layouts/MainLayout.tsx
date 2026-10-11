@@ -41,6 +41,9 @@ const MainLayout: React.FC = () => {
   const siderMode = useAppStore((s) => s.siderMode)
   const toggleSiderCollapsed = useAppStore((s) => s.toggleSiderCollapsed)
   const toggleSiderHidden = useAppStore((s) => s.toggleSiderHidden)
+  // 全屏会话模式：整页只留对话内容，侧边栏 / 顶栏都让位（开关在对话页工具栏）
+  const focusMode = useAppStore((s) => s.focusMode)
+  const toggleFocusMode = useAppStore((s) => s.toggleFocusMode)
   // 取当前主题 token，使写死的底色/边框跟随用户选择
   const { token } = theme.useToken()
 
@@ -57,6 +60,8 @@ const MainLayout: React.FC = () => {
   // Ctrl/Cmd + B：通用的「收起侧边栏」快捷键
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // 全屏会话模式没有侧边栏，快捷键没有意义，忽略以免误改下次进入时的布局
+      if (focusMode) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault()
         toggleSiderCollapsed()
@@ -64,7 +69,23 @@ const MainLayout: React.FC = () => {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [toggleSiderCollapsed])
+  }, [toggleSiderCollapsed, focusMode])
+
+  // Esc：退出全屏会话模式。
+  // 布局层监听而不是对话页，是因为对话页可能因路由切换而卸载，
+  // 那样会留下「全屏开着却没有出口」的状态（顶栏里的按钮已经藏起来了）。
+  // 注意只认「没有弹窗打开」的 Esc：antd 的 Modal 关闭时也会派发 Esc，
+  // 不判断的话关掉弹窗会顺带把全屏一起退掉。
+  React.useEffect(() => {
+    if (!focusMode) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (document.querySelector('.ant-modal-wrap, .ant-dropdown, .ant-popover')) return
+      toggleFocusMode()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [focusMode, toggleFocusMode])
 
   const handleLogout = () => {
     logout()
@@ -88,10 +109,11 @@ const MainLayout: React.FC = () => {
   ]
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ height: focusMode ? '100vh' : undefined, minHeight: '100vh' }}>
       {/* 隐藏模式直接不渲染 Sider：用 collapsedWidth=0 会留下零宽占位，
-          且 antd 的零宽触发器会在左侧留下一个悬浮条 */}
-      {!hidden && (
+          且 antd 的零宽触发器会在左侧留下一个悬浮条。
+          全屏会话模式同样不渲染，把整屏让给对话 */}
+      {!hidden && !focusMode && (
         <Sider
           breakpoint="lg"
           collapsedWidth="64"
@@ -131,6 +153,9 @@ const MainLayout: React.FC = () => {
         </Sider>
       )}
       <Layout>
+        {/* 全屏会话模式隐藏整条顶栏（导航 / 设置 / 用户菜单都在里面）。
+            退出入口由对话页工具栏的按钮和 Esc 提供，不会「进去出不来」 */}
+        {!focusMode && (
         <Header
           style={{
             background: token.colorBgContainer,
@@ -190,13 +215,29 @@ const MainLayout: React.FC = () => {
             </Dropdown>
           </Space>
         </Header>
+        )}
         <Content
           style={{
-            padding: 24,
+            // 全屏会话：把 24px 的大留白收到 8px，对话区更贴近边框
+            padding: focusMode ? 8 : 24,
             // 跟随用户选择的背景色（由 ConfigProvider 注入）
             background: token.colorBgLayout,
             color: token.colorText,
-            overflow: 'auto',
+            // 全屏会话：外层 Layout 已被约束成 100vh，这里用 minHeight:0 + flex:1
+            // 把它压成「剩余空间」，让对话区自己滚动。
+            // 关键是不能让内容把 Content 撑高——否则整页出现滚动条，
+            // 底部输入框被推到视口外（就是之前输入框显示不全的原因）。
+            ...(focusMode
+              ? {
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'hidden',
+                  // 声明成 column flex 容器，内部对话区用 flex:1 撑满
+                  // （高度由 flex 分配，不再依赖百分比高度）
+                  display: 'flex',
+                  flexDirection: 'column',
+                }
+              : { overflow: 'auto' }),
           }}
         >
           <Outlet />

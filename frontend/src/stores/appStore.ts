@@ -43,6 +43,12 @@ interface AppState {
   /** 侧边栏是否收起（只看图标）/ 完全隐藏 —— 由 MainLayout 读取 */
   siderMode: SiderMode
 
+  /**
+   * 全屏会话模式：只保留对话区与输入区，隐藏侧边栏、顶栏和对话页的配置工具栏，
+   * 并收紧内容区留白 —— 由 MainLayout 与 ChatPage 共同读取。
+   */
+  focusMode: boolean
+
   toggleHighlightCode: () => void
   setApiKey: (key: string) => void
   setInterviewDuration: (duration: number) => void
@@ -77,6 +83,10 @@ interface AppState {
   /** 在 expanded ↔ collapsed 之间切换；hidden 时切回 expanded */
   toggleSiderCollapsed: () => void
   toggleSiderHidden: () => void
+
+  // 全屏会话 actions
+  setFocusMode: (on: boolean) => void
+  toggleFocusMode: () => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -105,6 +115,7 @@ export const useAppStore = create<AppState>()(
       systemAudioError: null,
 
       siderMode: 'expanded',
+      focusMode: false,
 
       toggleHighlightCode: () =>
         set((state) => ({ highlightCode: !state.highlightCode })),
@@ -248,6 +259,9 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           siderMode: state.siderMode === 'hidden' ? 'expanded' : 'hidden',
         })),
+
+      setFocusMode: (on) => set({ focusMode: on }),
+      toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
     }),
     {
       name: 'interview-agent-app-prefs',
@@ -284,6 +298,7 @@ export const useAppStore = create<AppState>()(
         systemAudioDevice: state.systemAudioDevice,
         systemAudioAutoAsk: state.systemAudioAutoAsk,
         siderMode: state.siderMode,
+        focusMode: state.focusMode,
       }),
     },
   ),

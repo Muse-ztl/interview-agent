@@ -27,6 +27,8 @@ import {
   PauseCircleOutlined,
   CameraOutlined,
   LoadingOutlined,
+  FullscreenOutlined,
+  FullscreenExitOutlined,
 } from '@ant-design/icons'
 import { useChatStore } from '@/stores/chatStore'
 import { useAppStore } from '@/stores/appStore'
@@ -119,6 +121,8 @@ const ChatPage: React.FC = () => {
     interviewDuration,
     setInterviewDuration,
     setSystemAudioStatus,
+    focusMode,
+    toggleFocusMode,
   } = useAppStore()
   const { sendMessage, abort } = useSSE()
   const { sttAvailable, ttsAvailable } = useVoiceAvailability()
@@ -722,8 +726,21 @@ const ChatPage: React.FC = () => {
       : null
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 140px)' }}>
-      {/* 顶部工具栏 */}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        // 全屏会话模式：外层 Content 是 column flex，这里用 flex:1 撑满剩余空间
+        // （不能用 100vh —— 它不含页面上的其它元素与留白，会把底部输入框
+        //  顶出视口，导致「输入框显示不全 + 右侧出现滚动条」）。
+        // 普通模式仍按视口估算，减掉顶栏与内容区留白。
+        ...(focusMode
+          ? { flex: 1, minHeight: 0 }
+          : { height: 'calc(100vh - 140px)' }),
+      }}
+    >
+      {/* 顶部工具栏：全屏会话模式整个隐藏，只留一个悬浮的退出按钮 */}
+      {!focusMode && (
       <div
         style={{
           padding: '8px 0',
@@ -937,7 +954,50 @@ const ChatPage: React.FC = () => {
             全部
           </Button>
         </Popconfirm>
+
+        {/* 全屏会话：只留对话与输入，隐藏侧边栏 / 顶栏 / 本工具栏（Esc 也可退出） */}
+        <Tooltip title="全屏会话：只显示对话内容，隐藏其它界面元素（Esc 退出）">
+          <Button
+            size="small"
+            icon={<FullscreenOutlined />}
+            onClick={toggleFocusMode}
+            aria-label="进入全屏会话"
+          >
+            全屏
+          </Button>
+        </Tooltip>
       </div>
+      )}
+
+      {/* 全屏会话模式：工具栏被隐藏，这里补一个悬浮的退出按钮，
+          免得用户不知道该怎么回去（Esc 是另一条退路，但不够显眼）。
+          平时半透明，指上去才实心，尽量不打扰对话内容 */}
+      {focusMode && (
+        <Tooltip title="退出全屏会话（Esc）">
+          <Button
+            size="small"
+            icon={<FullscreenExitOutlined />}
+            onClick={toggleFocusMode}
+            aria-label="退出全屏会话"
+            style={{
+              position: 'fixed',
+              top: 8,
+              right: 8,
+              zIndex: 100,
+              opacity: 0.3,
+              transition: 'opacity 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '1'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '0.3'
+            }}
+          >
+            退出全屏
+          </Button>
+        </Tooltip>
+      )}
 
       {/* 练习进度条（悬浮置顶，对话滚动时始终可见） */}
       {practiceActive && (
@@ -946,6 +1006,7 @@ const ChatPage: React.FC = () => {
             position: 'sticky',
             top: 0,
             zIndex: 10,
+            flexShrink: 0,
             background: token.colorPrimaryBg,
             borderRadius: 8,
             padding: '8px 16px',
@@ -1026,6 +1087,9 @@ const ChatPage: React.FC = () => {
         onScroll={handleScroll}
         style={{
           flex: 1,
+          // minHeight:0：flex 子项默认 min-height:auto 会被内容撑高，
+          // 那样滚动条会落到整页上，底部输入框被挤出视口
+          minHeight: 0,
           overflow: 'auto',
           padding: '0 4px',
         }}
@@ -1067,9 +1131,9 @@ const ChatPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 语音输入面板 */}
+      {/* 语音输入面板（flexShrink:0：高度优先让给消息列表，面板本身不被压扁） */}
       {sttAvailable && (
-        <div style={{ padding: '8px 0 0' }}>
+        <div style={{ padding: '8px 0 0', flexShrink: 0 }}>
           <VoiceInputPanel
             onResult={(text) => {
               setInputValue(text)
@@ -1079,7 +1143,7 @@ const ChatPage: React.FC = () => {
         </div>
       )}
 
-      {/* 底部输入区 */}
+      {/* 底部输入区（flexShrink:0：任何情况下都要完整可见，不被上方内容挤出视口） */}
       <div
         style={{
           padding: '12px 0 0',
@@ -1087,6 +1151,7 @@ const ChatPage: React.FC = () => {
           display: 'flex',
           gap: 8,
           alignItems: 'flex-end',
+          flexShrink: 0,
         }}
       >
         <TextArea
