@@ -3,10 +3,10 @@
 import io
 
 import pytest
+
 from services.vector_store import (
     is_vector_store_available,
 )
-
 
 pytestmark = pytest.mark.skipif(
     not is_vector_store_available(),

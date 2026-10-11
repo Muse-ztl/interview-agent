@@ -2,15 +2,12 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from services.rag_pipeline import (
     _extract_doc_info,
     build_rag_context,
     create_rag_retriever,
     format_rag_docs,
 )
-
 
 # ============================================================
 #  _extract_doc_info

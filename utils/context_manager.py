@@ -4,11 +4,13 @@ from typing import Union
 
 import tiktoken
 from langchain_core.messages import (
-    trim_messages as lc_trim_messages,
-    SystemMessage,
-    HumanMessage,
     AIMessage,
     BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
+from langchain_core.messages import (
+    trim_messages as lc_trim_messages,
 )
 
 from models.schemas import Message

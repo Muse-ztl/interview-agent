@@ -33,9 +33,8 @@ sys.path.insert(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "stt_service"),
 )
 
-from vad_processor import VADProcessor, VAD_WINDOW_SAMPLES  # noqa: E402
 from streaming_transcriber import StreamingTranscriber  # noqa: E402
-
+from vad_processor import VAD_WINDOW_SAMPLES, VADProcessor  # noqa: E402
 
 SR = 16000
 FRAME = 1600  # 100ms @ 16kHz，与客户端发送的帧长一致
@@ -536,8 +535,8 @@ def test_shared_whisper_loaded_once():
 
 def test_shared_whisper_keyed_by_config():
     """不同配置（size/device/compute）应各自缓存"""
-    import streaming_transcriber as st
     import faster_whisper
+    import streaming_transcriber as st
 
     calls = []
 
@@ -561,8 +560,8 @@ def test_shared_whisper_keyed_by_config():
 
 def test_transcriber_reuses_shared_model():
     """多个 StreamingTranscriber 实例应共享同一个模型对象"""
-    import streaming_transcriber as st
     import faster_whisper
+    import streaming_transcriber as st
 
     class _FakeModel:
         def __init__(self, *a, **kw):

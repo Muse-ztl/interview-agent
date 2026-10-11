@@ -8,11 +8,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select, delete, func
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.schemas import UploadRecord
 from models.db_models import Upload
+from models.schemas import UploadRecord
 
 logger = logging.getLogger(__name__)
 

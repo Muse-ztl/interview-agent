@@ -11,7 +11,6 @@ from sqlalchemy.orm import DeclarativeBase
 
 from config import settings
 
-
 # ── 数据库 URL 构建 ──
 # 优先使用 DATABASE_URL，否则根据 DB_TYPE 自动构建
 _DATABASE_URL = settings.DATABASE_URL

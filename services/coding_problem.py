@@ -1,9 +1,8 @@
 """编程题服务 — 根据岗位类型和答题情况智能选题（从种子数据库读取）"""
 
-import asyncio
 import json
-import random
 import os
+import random
 from typing import Optional
 
 from sqlalchemy import select
@@ -89,7 +88,7 @@ async def load_problems_from_db(db) -> list[dict]:
 def _get_difficulty_bias(position_type: str, position_name: str) -> int:
     """
     根据岗位类型计算难度偏移。
-    
+
     优先根据 position_type（关键词分类结果），
     然后根据 position_name 中的具体关键词微调。
     """
@@ -117,11 +116,11 @@ def _get_difficulty_bias(position_type: str, position_name: str) -> int:
 def _get_adaptive_adjustment(conversation_history: list[str]) -> int:
     """
     根据对话历史评估候选人的回答质量，返回难度调整值。
-    
+
     简单策略：分析最近几轮 AI 面试官的评价。
     如果 AI 多次给出正面评价（"很好"、"不错"、"正确"等），上调难度；
     如果多次给出负面评价（"不对"、"错误"、"需要加强"等），下调难度。
-    
+
     Returns:
         -1: 降低难度, 0: 不变, 1: 提高难度
     """

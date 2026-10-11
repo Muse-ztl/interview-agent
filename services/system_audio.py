@@ -30,7 +30,7 @@ import logging
 import sys
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 from config import settings
@@ -381,7 +381,6 @@ class LoopbackCapture:
                 or self._source_rate
                 or DEFAULT_SOURCE_RATE
             )
-            native_channels = int(getattr(mic, "channels", 0) or 0)
 
             if not native_rate or native_rate <= 0:
                 native_rate = DEFAULT_SOURCE_RATE

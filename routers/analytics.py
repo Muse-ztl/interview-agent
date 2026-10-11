@@ -6,19 +6,18 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func, extract, case, and_
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models.db_models import (
-    InterviewSession,
-    ChatMessage,
-    QARecord,
     InterviewReport,
+    InterviewSession,
+    QARecord,
 )
-from utils.auth import get_current_user, CurrentUser
+from utils.auth import CurrentUser, get_current_user
 
 logger = logging.getLogger(__name__)
 

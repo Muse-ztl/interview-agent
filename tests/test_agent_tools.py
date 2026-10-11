@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from services.agent_tools import _get_ddgs, search_web
 
-
 # ============================================================
 #  _get_ddgs — DuckDuckGo 实例获取
 # ============================================================

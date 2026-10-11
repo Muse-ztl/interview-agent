@@ -1,12 +1,11 @@
 """LLM 客户端单元测试"""
 
 import asyncio
-
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from services.llm_client import get_client, generate_report
+import pytest
 
+from services.llm_client import generate_report, get_client
 
 # ============================================================
 #  get_client — 客户端获取
@@ -130,11 +129,11 @@ class TestStreamChat:
 
     def test_handles_api_error(self):
         """API 错误时 yield error 事件"""
-        import services.llm_client as llm
-        from openai import APIError
-
         # 构造一个真实的 APIError 实例（需要 httpx.Request 参数）
         import httpx
+        from openai import APIError
+
+        import services.llm_client as llm
         mock_request = httpx.Request("POST", "https://api.example.com")
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(

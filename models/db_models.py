@@ -16,24 +16,22 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column,
-    String,
-    Text,
-    Integer,
-    Float,
+    JSON,
     Boolean,
+    Column,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
-    JSON,
+    Integer,
+    String,
     Table,
+    Text,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
 from database import Base
-
 
 # ── 工具函数 ──
 

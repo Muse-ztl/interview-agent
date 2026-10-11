@@ -1,6 +1,7 @@
 """应用配置管理，使用 python-dotenv 加载 .env 文件"""
 
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -218,13 +219,14 @@ settings = Settings()
 
 # ── 启动时日志：RAG 依赖状态 ──
 import logging
+
 _logger = logging.getLogger(__name__)
 
 # 延迟检查向量存储依赖（避免在导入阶段触发重依赖加载）
 _rag_deps_available = False
 try:
-    import torch  # noqa: F401
     import faiss  # noqa: F401
+    import torch  # noqa: F401
     from sentence_transformers import SentenceTransformer  # noqa: F401
     _rag_deps_available = True
 except (ImportError, OSError):

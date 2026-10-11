@@ -1,8 +1,7 @@
 """文档解析器单元测试"""
 
-import io
 
-from services.parser import parse_file, extract_text_from_txt
+from services.parser import extract_text_from_txt, parse_file
 
 
 class TestTextExtraction:

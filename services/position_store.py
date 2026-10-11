@@ -12,8 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from models.schemas import PositionResponse, JDResponse
-from models.db_models import Position, JD
+from models.db_models import JD, Position
+from models.schemas import JDResponse, PositionResponse
 from utils.position_classifier import classify_position
 
 logger = logging.getLogger(__name__)

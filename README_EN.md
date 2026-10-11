@@ -74,7 +74,7 @@ Pick one of three methods:
 | 📦 Single Container | `docker run` | All platforms |
 
 > **First time?** Copy `.env.example` → `.env` and fill in your [DeepSeek API Key](https://platform.deepseek.com/)
-> 
+>
 > **China mainland users**: First launch downloads the Embedding model (~90MB). `.env` includes `HF_ENDPOINT=https://hf-mirror.com` by default — no extra setup needed.
 
 ### Key Configuration

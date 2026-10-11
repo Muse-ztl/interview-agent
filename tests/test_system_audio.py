@@ -19,7 +19,6 @@ import pytest
 
 from services import system_audio as sa
 
-
 # ══════════════════════════════════════════════════════════════
 # 辅助：伪造 soundcard
 # ══════════════════════════════════════════════════════════════
@@ -420,7 +419,7 @@ def test_transcript_store_clear_empties_content_but_keeps_seq_monotonic():
     # 清空后新产生的行，序号必须仍然大于清空前已消费的值
     second = store.add("b", "final")
     assert second.seq > first.seq, "clear 后序号必须继续递增，不能归零"
-    assert [l["text"] for l in store.since(first.seq)] == ["b"]
+    assert [line["text"] for line in store.since(first.seq)] == ["b"]
 
 
 def test_seq_monotonic_across_store_recreated():
@@ -440,7 +439,7 @@ def test_seq_monotonic_across_store_recreated():
     c = s2.add("新会话", "final")
 
     assert c.seq > b.seq, "新会话的序号必须大于旧会话"
-    assert [l["text"] for l in s2.since(b.seq)] == ["新会话"]
+    assert [line["text"] for line in s2.since(b.seq)] == ["新会话"]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -527,14 +526,13 @@ class _FakeWS:
 
 def _run_recv(messages):
     """把消息喂给 _recv_loop，返回收集到的 (kind, text)"""
-    import asyncio
 
     from services.audio_transcribe import AudioTranscribeSession
 
     sess = AudioTranscribeSession()
     sess._ws = _FakeWS(messages)
     asyncio.run(sess._recv_loop())
-    return [(l["kind"], l["text"]) for l in sess.store.since(0)]
+    return [(line["kind"], line["text"]) for line in sess.store.since(0)]
 
 
 def test_final_with_same_text_as_partial_is_kept():

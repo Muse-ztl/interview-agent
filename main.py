@@ -40,14 +40,27 @@ else:
     _DESKTOP_ARGV = None
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
 # 应用级 404 兜底要用到（见文件末尾的 api_not_found_handler）
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
-from routers import chat, upload, interview, position, knowledge, auth, sessions, analytics, question_bank, screenshot, system_audio
+from routers import (
+    analytics,
+    auth,
+    chat,
+    interview,
+    knowledge,
+    position,
+    question_bank,
+    screenshot,
+    sessions,
+    system_audio,
+    upload,
+)
 
 # ============ 日志配置 ============
 
@@ -66,9 +79,11 @@ logger = logging.getLogger(__name__)
 async def _seed_question_bank():
     """从种子数据库导入题库数据（仅在 question_bank 表为空时执行）"""
     import json
-    from sqlalchemy import select, func
-    from models.db_models import QuestionBankItem
+
+    from sqlalchemy import func, select
+
     from database import async_session_factory
+    from models.db_models import QuestionBankItem
 
     seed_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "question_bank.db")
     if not os.path.exists(seed_db_path):
@@ -145,8 +160,8 @@ async def lifespan(app: FastAPI):
     # 启动：按需自动开始系统音频捕获
     if _s.SYSTEM_AUDIO_ENABLED and _s.SYSTEM_AUDIO_AUTOSTART:
         try:
-            from services.audio_transcribe import AudioTranscribeSession
             from routers import system_audio as _sa_router
+            from services.audio_transcribe import AudioTranscribeSession
 
             session = AudioTranscribeSession(device_id=_s.SYSTEM_AUDIO_DEVICE or None)
             await session.start()

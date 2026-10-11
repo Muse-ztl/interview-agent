@@ -88,7 +88,7 @@ class TranscriptStore:
 
     def since(self, since_seq: int = 0) -> list[dict]:
         with self._lock:
-            return [asdict(l) for l in self.lines if l.seq > since_seq]
+            return [asdict(line) for line in self.lines if line.seq > since_seq]
 
     def latest_seq(self) -> int:
         with self._lock:

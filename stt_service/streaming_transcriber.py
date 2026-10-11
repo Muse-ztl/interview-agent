@@ -10,7 +10,6 @@ import threading
 from typing import Callable, Optional
 
 import numpy as np
-
 from vad_processor import VADProcessor
 from zh_convert import to_simplified
 

@@ -1,10 +1,6 @@
 """编程题服务单元测试 — 智能选题 + 难度适配"""
 
-import json
-import os
-import tempfile
 
-import pytest
 
 from services.coding_problem import (
     _get_adaptive_adjustment,
@@ -13,7 +9,6 @@ from services.coding_problem import (
     format_problems_for_prompt,
     select_problems,
 )
-
 
 # ============================================================
 #  _load_problems

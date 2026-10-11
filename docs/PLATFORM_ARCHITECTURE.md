@@ -41,14 +41,14 @@ erDiagram
     User }o--o{ Team : "belongs to"
     Team ||--o{ Position : "shares"
     Team ||--o{ InterviewTemplate : "defines"
-    
+
     Position ||--o{ JD : "contains"
     Position ||--o{ KnowledgeChunk : "indexed by"
-    
+
     InterviewSession ||--o{ ChatMessage : "records"
     InterviewSession ||--o{ QARecord : "tracks"
     InterviewSession ||--|| InterviewReport : "generates"
-    
+
     User {
         uuid id PK
         string email UK
@@ -59,7 +59,7 @@ erDiagram
         jsonb preferences
         datetime created_at
     }
-    
+
     Team {
         uuid id PK
         string name
@@ -67,7 +67,7 @@ erDiagram
         jsonb settings
         datetime created_at
     }
-    
+
     Position {
         uuid id PK
         uuid user_id FK
@@ -78,7 +78,7 @@ erDiagram
         jsonb jds "[{id,content,created_at}]"
         datetime created_at
     }
-    
+
     InterviewSession {
         uuid id PK
         uuid user_id FK
@@ -95,7 +95,7 @@ erDiagram
         datetime started_at
         datetime ended_at
     }
-    
+
     ChatMessage {
         bigserial id PK
         uuid session_id FK
@@ -105,7 +105,7 @@ erDiagram
         int token_count
         datetime created_at
     }
-    
+
     QARecord {
         bigserial id PK
         uuid session_id FK
@@ -116,7 +116,7 @@ erDiagram
         float answer_duration_sec
         datetime created_at
     }
-    
+
     InterviewReport {
         uuid id PK
         uuid session_id FK

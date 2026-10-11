@@ -3,10 +3,9 @@
 import io
 import logging
 import os
-import zipfile
 import tarfile
 import tempfile
-import shutil
+import zipfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -502,7 +501,6 @@ def parse_file(file_bytes: bytes, filename: str) -> str:
     根据扩展名分发到不同的解析器。
     """
     ext = Path(filename).suffix.lower()
-    namelower = filename.lower()
 
     if ext == ".pdf":
         return extract_text_from_pdf(file_bytes)

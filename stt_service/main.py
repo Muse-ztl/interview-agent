@@ -59,8 +59,8 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from streaming_transcriber import StreamingTranscriber, preload_shared_models
-from zh_convert import to_simplified
 from stt_config import load_config
+from zh_convert import to_simplified
 
 # ── 日志 ──
 logging.basicConfig(
@@ -197,7 +197,6 @@ async def transcribe(file: UploadFile = File(...)):
 
     try:
         # 用 ffmpeg 转 PCM 16kHz mono
-        import ffmpeg
         import subprocess
 
         out_path = tmp_path + ".wav"
@@ -212,7 +211,6 @@ async def transcribe(file: UploadFile = File(...)):
         )
 
         # 读取 PCM 数据
-        import soundfile as sf  # 备选
         try:
             import wave
             with wave.open(out_path, "rb") as wf:

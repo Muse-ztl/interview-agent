@@ -3,22 +3,22 @@
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
+from database import get_db
 from models.schemas import (
-    PositionCreate,
-    PositionUpdate,
-    PositionResponse,
-    PositionListResponse,
     JDCreate,
     JDResponse,
+    PositionCreate,
+    PositionListResponse,
+    PositionResponse,
+    PositionUpdate,
 )
 from services.position_store import PositionStore
-from config import settings
 from services.vector_store import VectorStoreManager
-from database import get_db
-from utils.auth import get_current_user, CurrentUser
+from utils.auth import CurrentUser, get_current_user
 
 logger = logging.getLogger(__name__)
 

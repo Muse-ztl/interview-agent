@@ -25,7 +25,6 @@ zhconv = pytest.importorskip("zhconv", reason="需要 zhconv 才能验证繁简�
 
 from zh_convert import to_simplified  # noqa: E402
 
-
 # ══════════════════════════════════════════════════════════════
 # 基本转换
 # ══════════════════════════════════════════════════════════════

@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 
 class TestModelsEndpoint:
     """GET /models — 模型列表（由后端调用官方 /models 动态获取）"""

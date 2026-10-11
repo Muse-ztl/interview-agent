@@ -1,8 +1,8 @@
 """数据模型定义"""
 
-from pydantic import BaseModel, Field
 from typing import Optional
 
+from pydantic import BaseModel, Field
 
 # ============ 候选人与面试配置常量 ============
 

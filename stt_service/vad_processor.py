@@ -6,8 +6,8 @@ Silero VAD 流式处理器
 import logging
 import os
 import threading
-from typing import Optional
 from enum import Enum
+from typing import Optional
 
 import numpy as np
 

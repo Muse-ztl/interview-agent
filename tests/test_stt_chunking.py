@@ -27,7 +27,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "stt_service"))
 
 import vad_processor  # noqa: E402
-
 from streaming_transcriber import StreamingTranscriber  # noqa: E402
 from vad_processor import VADProcessor  # noqa: E402
 

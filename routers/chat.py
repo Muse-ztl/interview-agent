@@ -5,21 +5,21 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
-from starlette.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from config import settings
+from database import get_db
 from models.schemas import ChatRequest, ModelsResponse
+from services.agent_tools import search_web
+from services.coding_problem import format_problems_for_prompt, select_problems
 from services.llm_client import stream_chat
 from services.model_registry import get_available_models, invalidate_cache, validate_model
-from services.agent_tools import search_web
-from services.coding_problem import select_problems, format_problems_for_prompt
 from services.rag_pipeline import build_rag_context
-from utils.prompt_loader import load_prompt
+from utils.auth import CurrentUser, get_optional_user
 from utils.context_manager import estimate_tokens, trim_messages
-from utils.auth import get_optional_user, CurrentUser
-from database import get_db
+from utils.prompt_loader import load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +313,7 @@ async def chat_stream(
         model = req.model
         if model and not await validate_model(model, api_key=req.api_key):
             yield f"data: {json.dumps({'type': 'error', 'content': f'模型 {model} 不可用'}, ensure_ascii=False)}\n\n"
-            yield f"data: [DONE]\n\n"
+            yield "data: [DONE]\n\n"
             return
 
         async for chunk in stream_chat(
@@ -324,10 +324,10 @@ async def chat_stream(
             api_key=req.api_key,
         ):
             if chunk["type"] == "done":
-                yield f"data: [DONE]\n\n"
+                yield "data: [DONE]\n\n"
             elif chunk["type"] == "error":
                 yield f"data: {json.dumps({'type': 'error', 'content': chunk['content']}, ensure_ascii=False)}\n\n"
-                yield f"data: [DONE]\n\n"
+                yield "data: [DONE]\n\n"
             else:
                 yield f"data: {json.dumps({'type': chunk['type'], 'content': chunk['content']}, ensure_ascii=False)}\n\n"
 

@@ -1,6 +1,5 @@
 """岗位类型分类器 — 基于岗位名称关键词做技术岗/非技术岗的简单区分"""
 
-import re
 from typing import Literal
 
 PositionType = Literal["技术岗", "非技术岗", "未知"]
@@ -55,25 +54,25 @@ NON_TECH_KEYWORDS = [
 def classify_position(name: str) -> PositionType:
     """
     根据岗位名称分类。
-    
+
     策略：
     1. 先匹配技术关键词，命中则返回"技术岗"
     2. 再匹配非技术关键词，命中则返回"非技术岗"
     3. 都不命中则返回"未知"（由 LLM 自行判断）
-    
+
     注意：设计类（UI/UX/交互等）归为非技术岗。
     """
     if not name:
         return "未知"
-    
+
     # 技术关键词优先
     for kw in TECH_KEYWORDS:
         if kw.lower() in name.lower():
             return "技术岗"
-    
+
     # 非技术关键词
     for kw in NON_TECH_KEYWORDS:
         if kw.lower() in name.lower():
             return "非技术岗"
-    
+
     return "未知"

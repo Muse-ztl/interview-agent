@@ -12,18 +12,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models.db_models import User
-from config import settings
 from utils.auth import (
-    hash_password,
-    verify_password,
+    CurrentUser,
+    _ensure_local_user,
+    auth_disabled,
     create_access_token,
     create_refresh_token,
     decode_token,
     get_current_user,
     get_optional_user,
-    CurrentUser,
-    auth_disabled,
-    _ensure_local_user,
+    hash_password,
+    verify_password,
 )
 
 logger = logging.getLogger(__name__)

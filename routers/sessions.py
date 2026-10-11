@@ -3,18 +3,17 @@
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, func, desc
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models.db_models import InterviewSession, ChatMessage, QARecord, InterviewReport
-from utils.auth import get_current_user, get_optional_user, CurrentUser
+from models.db_models import ChatMessage, InterviewReport, InterviewSession
+from utils.auth import CurrentUser, get_current_user
 
 logger = logging.getLogger(__name__)
 

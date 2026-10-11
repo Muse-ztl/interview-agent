@@ -11,7 +11,6 @@ import io
 import json
 import logging
 import os
-import sys
 import wave
 from typing import Optional
 
@@ -19,7 +18,6 @@ from typing import Optional
 _hf_endpoint = os.getenv("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ["HF_ENDPOINT"] = _hf_endpoint
 
-import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 
@@ -84,7 +82,7 @@ def _ensure_voice():
         model_path = os.path.join(TTS_MODEL_DIR, f"{hf_path}.onnx")
         if not os.path.exists(model_path):
             model_path = os.path.join(TTS_MODEL_DIR, f"{TTS_VOICE}.onnx")
-        config_path = model_path  # Piper 新版配置嵌入 onnx
+        # 注：Piper 新版把配置嵌入 .onnx 内，无需单独的 .json 路径
 
         if not os.path.exists(model_path):
             # 自动下载模型（HF 镜像）
@@ -96,10 +94,9 @@ def _ensure_voice():
                 model_path = os.path.join(TTS_MODEL_DIR, f"{hf_path}.onnx")
                 try:
                     hf_hub_download(repo_id="rhasspy/piper-voices", filename=f"{hf_path}.json", local_dir=TTS_MODEL_DIR)
-                    config_path = os.path.join(TTS_MODEL_DIR, f"{hf_path}.json")
                 except Exception:
                     # Piper 新版模型配置嵌入在 .onnx 内，.json 不存在是正常的
-                    config_path = model_path
+                    pass
             except Exception as dl_err:
                 logger.error("Piper download failed: %s", dl_err)
                 raise FileNotFoundError(f"Cannot download Piper voice '{TTS_VOICE}'.")

@@ -3,23 +3,23 @@
 import logging
 import time
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
-from models.schemas import UploadResponse, ProjectUploadResponse, UploadListResponse, UploadRecord
+from database import get_db
+from models.schemas import ProjectUploadResponse, UploadListResponse, UploadRecord, UploadResponse
+from services.chunker import chunk_document
 from services.parser import (
-    parse_file,
-    analyze_project,
-    RESUME_EXTENSIONS,
-    CODE_EXTENSIONS,
     ARCHIVE_EXTENSIONS,
+    CODE_EXTENSIONS,
+    RESUME_EXTENSIONS,
+    analyze_project,
+    parse_file,
 )
 from services.upload_store import UploadStore
-from services.chunker import chunk_document
 from services.vector_store import VectorStoreManager, is_vector_store_available
-from database import get_db
-from utils.auth import get_current_user, CurrentUser
+from utils.auth import CurrentUser, get_current_user
 
 logger = logging.getLogger(__name__)
 

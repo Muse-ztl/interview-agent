@@ -52,8 +52,8 @@ def is_vector_store_available() -> bool:
     global _VECTOR_STORE_AVAILABLE
     if _VECTOR_STORE_AVAILABLE is None:
         try:
-            import torch  # noqa: F401
             import faiss  # noqa: F401
+            import torch  # noqa: F401
             from sentence_transformers import SentenceTransformer  # noqa: F401
             _VECTOR_STORE_AVAILABLE = True
         except (ImportError, OSError) as e:

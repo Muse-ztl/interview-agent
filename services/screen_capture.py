@@ -37,7 +37,6 @@ import io
 import logging
 import sys
 import threading
-import time
 from typing import Optional
 
 from config import settings
@@ -58,7 +57,7 @@ except ImportError:  # pragma: no cover
     Image = None
 
 try:
-    from windows_capture import WindowsCapture, Frame, InternalCaptureControl
+    from windows_capture import Frame, InternalCaptureControl, WindowsCapture
 
     WC_AVAILABLE = True
     WC_IMPORT_ERROR = ""

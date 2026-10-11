@@ -1,6 +1,5 @@
 """向量存储服务单元测试 — FAISS 索引 + 完整性校验"""
 
-import hashlib
 import os
 import tempfile
 from unittest.mock import MagicMock, patch
@@ -13,7 +12,6 @@ from services.vector_store import (
     _format_progress_bar,
     is_vector_store_available,
 )
-
 
 # ============================================================
 #  工具函数

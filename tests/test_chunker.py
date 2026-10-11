@@ -1,6 +1,6 @@
 """文档分块器单元测试"""
 
-from services.chunker import chunk_faq_document, chunk_code_document, chunk_by_size, chunk_document
+from services.chunker import chunk_by_size, chunk_code_document, chunk_document, chunk_faq_document
 
 
 class TestChunkBySize:

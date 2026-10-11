@@ -73,7 +73,7 @@ def _effort_levels(model: object) -> list[str]:
     if isinstance(levels, str):
         return [levels]
     if isinstance(levels, (list, tuple)):
-        return [str(l) for l in levels]
+        return [str(level) for level in levels]
     return []
 
 

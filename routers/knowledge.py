@@ -4,28 +4,28 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
+from database import get_db
 from models.schemas import (
-    KnowledgeUploadResponse,
+    KnowledgeChunk,
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
-    KnowledgeChunk,
-)
-from services.parser import (
-    parse_file,
-    analyze_project,
-    RESUME_EXTENSIONS,
-    CODE_EXTENSIONS,
-    ARCHIVE_EXTENSIONS,
+    KnowledgeUploadResponse,
 )
 from services.chunker import chunk_document
-from services.vector_store import VectorStoreManager, is_vector_store_available
+from services.parser import (
+    ARCHIVE_EXTENSIONS,
+    CODE_EXTENSIONS,
+    RESUME_EXTENSIONS,
+    analyze_project,
+    parse_file,
+)
 from services.position_store import PositionStore
-from utils.auth import get_optional_user, CurrentUser
-from database import get_db
+from services.vector_store import VectorStoreManager, is_vector_store_available
+from utils.auth import CurrentUser, get_optional_user
 
 logger = logging.getLogger(__name__)
 
