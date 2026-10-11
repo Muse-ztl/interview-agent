@@ -616,6 +616,53 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 Ubuntu 上跑 Py
 
 ---
 
+## 🧹 代码检查（pre-commit）
+
+项目使用 [pre-commit](https://pre-commit.com) 在提交前自动检查代码，并由 [pre-commit.ci](https://pre-commit.ci) 在 PR 上自动运行与修复。
+
+### 本地启用
+
+```bash
+pip install pre-commit
+pre-commit install          # 安装 git hook，之后每次 commit 自动检查
+```
+
+### 常用命令
+
+| 命令 | 说明 |
+|------|------|
+| `pre-commit run --all-files` | 对全部文件跑一遍检查 |
+| `pre-commit run <hook-id>` | 只跑某个钩子，如 `pre-commit run ruff` |
+| `pre-commit autoupdate` | 把钩子版本升级到最新 tag |
+| `git commit --no-verify` | 跳过本次检查（仅在确有必要时使用） |
+
+### 包含的检查
+
+| 钩子 | 作用 |
+|------|------|
+| `check-yaml` / `check-json` / `check-toml` | 校验配置文件语法 |
+| `check-merge-conflict` | 拦截未解决的合并冲突标记 |
+| `check-added-large-files` | 拦截超过 1MB 的大文件 |
+| `mixed-line-ending` | 统一换行为 LF |
+| `end-of-file-fixer` / `trailing-whitespace` | 修正文件末尾换行与行尾空白 |
+| `detect-private-key` | 兜底防止私钥误提交 |
+| `ruff` | Python 静态检查，并自动修复导入排序、未使用导入等问题 |
+
+> **未启用 `ruff-format`**：它会重写 64/70 个 Python 文件（约 3.7 万行），与功能改动混在一起会让代码审查失去意义。如需统一格式，建议单独开一个只做格式化的提交，届时再在配置中打开该钩子。
+>
+> 静止规则集刻意从窄到宽（见 `pyproject.toml`），目前只启用确定性问题与导入排序；`UP`（如 `Optional[X]` → `X | None`）等会带来大量改动的规则尚未开启，可在后续逐步收紧。
+
+### CI 行为
+
+登录 [pre-commit.ci](https://pre-commit.ci) 用 GitHub 账号授权本仓库即可启用，无需额外配置：
+
+- 每个 PR 自动运行钩子，并直接向 PR 提交修复
+- 每周一约 16:00 UTC 自动提交钩子版本升级 PR
+- 在 PR 中单独一行评论 `pre-commit.ci run` 可重新触发
+- 提交信息含 `[skip ci]` / `[skip pre-commit.ci]` 时跳过
+
+---
+
 ## 🔧 技术栈
 
 ### 后端

@@ -1,0 +1,58 @@
+[tool.ruff]
+# 目标运行时：与 Dockerfile 的 python:3.11-slim 保持一致。
+# 注意：本地开发用的 .venv 可能是 3.10，语法层面无需额外兼容处理。
+target-version = "py311"
+
+# 单行长度上限。ruff-format 会按此宽度折行。
+line-length = 100
+
+# 沿用 .gitignore 的忽略规则，避免扫描构建产物与缓存目录
+respect-gitignore = true
+
+# 存量代码以「只做安全修复」为前提接入，因此这里不开启全量规则集，
+# 仅保留不会产生大量改动噪声的检查项。后续可逐步加入更多规则。
+exclude = [
+    ".venv",
+    "frontend",
+    "hf_cache",
+    "chroma_data",
+    "screenshots",
+    "logs",
+    "tts_models",
+    "stt_service/models",
+    "data",
+]
+
+[tool.ruff.lint]
+# 规则集说明（刻意从窄到宽，避免一次性产生大量与功能无关的改动）：
+#   E4/E7/E9 —— pycodestyle 中与「真实错误」相关的子集（缩进、语句、语法级）
+#               刻意不含 E501（行长），避免对存量长行产生海量告警
+#   F         —— Pyflakes：未使用导入/变量、未定义名称等确定性错误
+#   I         —— isort：导入排序（可自动修复）
+#
+# 暂未启用（后续可逐步加入）：
+#   UP  —— 存量 199 处 Optional[X] 需改为 X | None，会产生超大 diff
+#   B   —— 存量 94 处 B008 来自 FastAPI 的 Depends() 写法，属框架约定
+#   SIM / C4 —— 多为风格偏好，收益低于改动噪声
+select = ["E4", "E7", "E9", "F", "I"]
+
+# 逐条豁免，均为「有意为之」而非疏漏
+ignore = [
+    # F403/F405：允许 `from x import *`（当前未使用，留作兼容）
+    "F403",
+    "F405",
+    # E402：本项目多处刻意将 import 放在 load_dotenv / os.environ 注入之后
+    #       （如 config.py 必须先在导入 HF 库前设置 HF_ENDPOINT），
+    #       这是正确做法，不应报错。
+    "E402",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件允许较宽松的写法：断言、fixture 中的未使用变量、长函数等
+"tests/**" = ["B011", "F841", "E731", "B006", "B008"]
+# prompts/ 与 stt_service 下的脚本对导入顺序有运行期依赖
+"stt_service/**" = ["E402"]
+
+[tool.ruff.lint.isort]
+# 与项目实际的导入分组保持一致：标准库 / 第三方 / 本项目
+known-first-party = ["config", "database", "routers", "services", "models", "utils", "stt_service", "tts_service"]
