@@ -57,8 +57,15 @@ repos:
           )$
       - id: check-toml
       - id: check-merge-conflict
+      # 大文件拦截（默认只检查本次新增的文件，已提交的文件不受影响）。
+      #
+      # 排除随仓库提交的模型权重 —— 它们本就该在仓库里，只是体积大：
+      #   stt_service/models/silero_vad.onnx   ~2.2MB（VAD 模型）
+      #   tts_models/**/*.onnx                 ~60MB （Piper 语音模型）
+      # 不加排除时，`pre-commit run --all-files` 会因它们而失败。
       - id: check-added-large-files
         args: [--maxkb=1024]
+        exclude: (\.onnx$|^tts_models/.*)$
       # 换行统一为 LF。仓库内文本本就以 LF 存储（见 .gitattributes），
       # 此钩子防止 Windows 下误提交 CRLF。
       #
