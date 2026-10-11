@@ -11,6 +11,8 @@
 interface PywebviewApi {
   set_opacity: (value: number) => Promise<OpacityResult>
   get_opacity: () => Promise<OpacityResult>
+  set_zoom: (value: number) => Promise<ZoomResult>
+  get_zoom: () => Promise<ZoomStateResult>
   get_state: () => Promise<WindowStateResult>
   set_topmost: (enabled: boolean) => Promise<TopmostResult>
   set_taskbar_hidden: (hidden: boolean) => Promise<TaskbarResult>
@@ -38,6 +40,23 @@ export interface OpacityResult {
   error: string | null
 }
 
+/** 设置缩放的结果；method 为实际生效的路径（native=WebView2 原生缩放） */
+export interface ZoomResult {
+  ok: boolean
+  zoom: number
+  method: 'native' | null
+  error: string | null
+}
+
+export interface ZoomStateResult {
+  ok: boolean
+  zoom: number
+  zoom_percent: number
+  min_zoom: number
+  max_zoom: number
+  error: string | null
+}
+
 export interface WindowStateResult {
   ok: boolean
   opacity: number | null
@@ -50,6 +69,11 @@ export interface WindowStateResult {
   max_opacity: number
   /** 透明度百分数（20 ~ 100），便于直接绑定滑块 */
   opacity_percent?: number | null
+  /** 界面缩放倍率（0.5 ~ 2.0）与百分数，同样便于绑定滑块 */
+  zoom?: number
+  zoom_percent?: number
+  min_zoom?: number
+  max_zoom?: number
   error: string | null
 }
 
@@ -133,6 +157,28 @@ export async function setWindowOpacity(value: number): Promise<OpacityResult> {
     return await window.pywebview!.api.set_opacity(value)
   } catch (err) {
     return { ok: false, opacity: null, error: (err as Error).message || '设置失败' }
+  }
+}
+
+/** 设置界面缩放，value 取 0.5 ~ 2.0（也可传 50 ~ 200 的百分数） */
+export async function setWindowZoom(value: number): Promise<ZoomResult> {
+  if (!isDesktopWindow()) {
+    return { ok: false, zoom: value, method: null, error: '当前不在独立窗口模式中' }
+  }
+  try {
+    return await window.pywebview!.api.set_zoom(value)
+  } catch (err) {
+    return { ok: false, zoom: value, method: null, error: (err as Error).message || '设置失败' }
+  }
+}
+
+/** 读取界面缩放状态（含可调范围），供设置面板初始化 */
+export async function getWindowZoom(): Promise<ZoomStateResult | null> {
+  if (!isDesktopWindow()) return null
+  try {
+    return await window.pywebview!.api.get_zoom()
+  } catch {
+    return null
   }
 }
 

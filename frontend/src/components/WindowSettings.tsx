@@ -17,6 +17,7 @@ import {
   setWindowOpacity,
   setWindowTopmost,
   setTaskbarHidden,
+  setWindowZoom,
   // 起别名，避免与本地 state setter（setCaptureExclude）重名
   setCaptureExclude as applyCaptureExclude,
 } from '@/api/windowControl'
@@ -35,6 +36,12 @@ const MIN_PERCENT = 20
 const MAX_PERCENT = 100
 const DEFAULT_PERCENT = 100
 
+// 界面缩放范围（同样以百分数作为滑块单位；提交时换算成 0.5-2.0 倍率）
+const MIN_ZOOM_PERCENT = 50
+const MAX_ZOOM_PERCENT = 200
+const DEFAULT_ZOOM_PERCENT = 100
+const ZOOM_STEP_PERCENT = 5
+
 /** 百分数 → 后端所需的 0.2-1.0 小数 */
 const percentToFraction = (percent: number) => percent / 100
 
@@ -44,6 +51,12 @@ const toPercent = (value: number | null | undefined): number => {
   // 后端统一返回 0-1 的小数；兼容传入百分数的情况
   const percent = value <= 1 ? value * 100 : value
   return Math.max(MIN_PERCENT, Math.min(MAX_PERCENT, Math.round(percent)))
+}
+
+/** 把缩放百分数夹到合法区间并对齐步长 */
+const clampZoomPercent = (percent: number): number => {
+  const bounded = Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, percent))
+  return Math.round(bounded / ZOOM_STEP_PERCENT) * ZOOM_STEP_PERCENT
 }
 
 const WindowSettings: React.FC<WindowSettingsProps> = ({
@@ -58,9 +71,12 @@ const WindowSettings: React.FC<WindowSettingsProps> = ({
   const [hideTaskbar, setHideTaskbar] = useState(false)
   const [captureExclude, setCaptureExclude] = useState(false)
   const [captureSupported, setCaptureSupported] = useState(true)
+  // 界面缩放（百分数，100 = 原始大小）
+  const [zoomPercent, setZoomPercent] = useState(DEFAULT_ZOOM_PERCENT)
   const [open, setOpen] = useState(false)
   // 拖动过程中的实时值（避免频繁触发后端调用）
   const commitTimer = useRef<number | null>(null)
+  const zoomCommitTimer = useRef<number | null>(null)
 
   // ── 初始化：等待桥接就绪并读取当前状态 ──
   // 说明：这里刻意不使用 cancelled 标志丢弃结果 —— React 18 StrictMode 下
@@ -90,12 +106,18 @@ const WindowSettings: React.FC<WindowSettingsProps> = ({
       setHideTaskbar(!!state.hide_taskbar)
       setCaptureExclude(!!state.capture_exclude)
       setCaptureSupported(state.capture_supported !== false)
+      setZoomPercent(
+        clampZoomPercent(
+          typeof state.zoom_percent === 'number' ? state.zoom_percent : DEFAULT_ZOOM_PERCENT,
+        ),
+      )
     }
     void load()
 
     return () => {
       mountedRef.current = false
       if (commitTimer.current !== null) window.clearTimeout(commitTimer.current)
+      if (zoomCommitTimer.current !== null) window.clearTimeout(zoomCommitTimer.current)
     }
   }, [])
 
@@ -151,6 +173,37 @@ const WindowSettings: React.FC<WindowSettingsProps> = ({
     commitOpacity(DEFAULT_PERCENT)
   }, [commitOpacity])
 
+  /**
+   * 把缩放提交给 Python 端。
+   *
+   * 这里不只是「节流」，而是**只在停手后提交一次**：拖动过程中不断重置
+   * 定时器，滑块停下 150ms 才真正发请求。早先每 60ms 发一次的做法，
+   * 会在拖动时堆起一串并发的后端调用，拖动明显发滞。
+   */
+  const commitZoom = useCallback((percent: number) => {
+    if (zoomCommitTimer.current !== null) window.clearTimeout(zoomCommitTimer.current)
+    zoomCommitTimer.current = window.setTimeout(async () => {
+      const result = await setWindowZoom(percentToFraction(percent))
+      if (!result.ok) {
+        message.warning(result.error || '设置缩放失败')
+      }
+    }, 150)
+  }, [])
+
+  const handleZoomChange = useCallback(
+    (value: number | number[]) => {
+      const next = clampZoomPercent(Array.isArray(value) ? value[0] : value)
+      setZoomPercent(next)
+      commitZoom(next)
+    },
+    [commitZoom],
+  )
+
+  const resetZoom = useCallback(() => {
+    setZoomPercent(DEFAULT_ZOOM_PERCENT)
+    commitZoom(DEFAULT_ZOOM_PERCENT)
+  }, [commitZoom])
+
   /** 每次打开面板时重新同步一次窗口状态，避免显示与实际不一致 */
   const handleOpenChange = useCallback(async (next: boolean) => {
     setOpen(next)
@@ -164,6 +217,11 @@ const WindowSettings: React.FC<WindowSettingsProps> = ({
     setHideTaskbar(!!state.hide_taskbar)
     setCaptureExclude(!!state.capture_exclude)
       setCaptureSupported(state.capture_supported !== false)
+    setZoomPercent(
+      clampZoomPercent(
+        typeof state.zoom_percent === 'number' ? state.zoom_percent : DEFAULT_ZOOM_PERCENT,
+      ),
+    )
   }, [])
 
   // 配色在浏览器和独立窗口下都可用；透明度/置顶只在独立窗口模式下有意义
@@ -212,6 +270,58 @@ const WindowSettings: React.FC<WindowSettingsProps> = ({
             >
               恢复不透明
             </Button>
+
+            <Divider style={{ margin: '8px 0' }} />
+
+            {/* 界面缩放：报告 / 题目字小时放大，屏幕窄时缩小 */}
+            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <Text strong style={{ fontSize: 13 }}>
+                界面缩放
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {zoomPercent}%
+              </Text>
+            </Space>
+
+            <Slider
+              min={MIN_ZOOM_PERCENT}
+              max={MAX_ZOOM_PERCENT}
+              step={ZOOM_STEP_PERCENT}
+              value={zoomPercent}
+              onChange={handleZoomChange}
+              tooltip={{ formatter: (v) => `${v}%` }}
+              marks={{ 50: '50', 100: '100', 150: '150', 200: '200' }}
+              style={{ marginBottom: 26 }}
+            />
+
+            <Space size={12} style={{ alignSelf: 'flex-start' }}>
+              <Button
+                size="small"
+                type="link"
+                style={{ padding: 0, fontSize: 12 }}
+                onClick={resetZoom}
+              >
+                恢复 100%
+              </Button>
+              <Button
+                size="small"
+                type="link"
+                style={{ padding: 0, fontSize: 12 }}
+                onClick={() => handleZoomChange(zoomPercent - ZOOM_STEP_PERCENT)}
+                disabled={zoomPercent <= MIN_ZOOM_PERCENT}
+              >
+                缩小
+              </Button>
+              <Button
+                size="small"
+                type="link"
+                style={{ padding: 0, fontSize: 12 }}
+                onClick={() => handleZoomChange(zoomPercent + ZOOM_STEP_PERCENT)}
+                disabled={zoomPercent >= MAX_ZOOM_PERCENT}
+              >
+                放大
+              </Button>
+            </Space>
 
             <Divider style={{ margin: '8px 0' }} />
 

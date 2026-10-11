@@ -101,6 +101,15 @@ LWA_ALPHA = 0x00000002
 MIN_OPACITY = 0.20
 MAX_OPACITY = 1.0
 
+# ── 界面缩放 ──
+# 取值是「缩放倍率」：1.0 = 100%（原始大小）。
+# 下限 50% 保证文字仍可辨认，上限 200% 避免布局被撑到无法操作。
+MIN_ZOOM = 0.5
+MAX_ZOOM = 2.0
+DEFAULT_ZOOM = 1.0
+# 滑块步长（每次 5%），前端也用同一档位
+ZOOM_STEP = 0.05
+
 SW_HIDE = 0
 SW_SHOW = 5
 SW_SHOWNA = 8
@@ -370,6 +379,24 @@ def clamp_opacity(value: float) -> float:
     except (TypeError, ValueError):
         return MAX_OPACITY
     return max(MIN_OPACITY, min(MAX_OPACITY, number))
+
+
+def clamp_zoom(value) -> float:
+    """把缩放倍率限制在可用范围内，并保留到 5% 的整数倍。
+
+    入参同时接受倍率（1.0）与百分数（100）两种写法，
+    与透明度保持一致，避免前后端单位混淆。
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_ZOOM
+    if number > 10:  # 视为百分数（1.5 倍与 150% 中，后者必然大于 10）
+        number = number / 100.0
+    number = max(MIN_ZOOM, min(MAX_ZOOM, number))
+    # 对齐到步长，避免滑块产生 1.0499999 这类浮点噪声
+    steps = round(number / ZOOM_STEP)
+    return round(steps * ZOOM_STEP, 4)
 
 
 def set_window_opacity(hwnd: int, opacity: float) -> bool:
@@ -974,6 +1001,24 @@ class WindowControlApi:
             value = ctrl.opacity
         return {"ok": True, "opacity": value, "error": None}
 
+    # ── 界面缩放 ──
+
+    def set_zoom(self, value) -> dict:
+        """设置界面缩放，value 取 0.5 ~ 2.0（也可传 50~200 的百分数）"""
+        return self._controller.apply_zoom(value)
+
+    def get_zoom(self) -> dict:
+        ctrl = self._controller
+        zoom = ctrl.get_zoom()
+        return {
+            "ok": True,
+            "zoom": zoom,
+            "zoom_percent": int(round(zoom * 100)),
+            "min_zoom": MIN_ZOOM,
+            "max_zoom": MAX_ZOOM,
+            "error": None,
+        }
+
     # ── 其它窗口开关（便于前端统一放置设置项）──
 
     def set_topmost(self, enabled) -> dict:
@@ -1045,6 +1090,11 @@ class WindowControlApi:
             "hide_taskbar": ctrl.hide_taskbar,
             "min_opacity": MIN_OPACITY,
             "max_opacity": MAX_OPACITY,
+            # 缩放同透明度一样给出倍率与百分数两种形式
+            "zoom": ctrl.get_zoom(),
+            "zoom_percent": int(round(ctrl.get_zoom() * 100)),
+            "min_zoom": MIN_ZOOM,
+            "max_zoom": MAX_ZOOM,
             "error": None,
         }
 
@@ -1143,6 +1193,7 @@ class NativeWindow:
         fullscreen: bool = False,
         debug: bool = False,
         opacity: float = MAX_OPACITY,
+        zoom: float = DEFAULT_ZOOM,
     ):
         self.url = url
         self.title = title
@@ -1154,6 +1205,8 @@ class NativeWindow:
         self.fullscreen = fullscreen
         self.debug = debug
         self.opacity = clamp_opacity(opacity)
+        # 界面缩放倍率（1.0 = 100%），生效方式见 apply_zoom
+        self.zoom = clamp_zoom(zoom)
 
         self.window = None
         self.hwnd: int = 0
@@ -1169,6 +1222,99 @@ class NativeWindow:
 
     def hotkey_name(self) -> str:
         return "F8"
+
+    # ── 界面缩放 ──
+
+    def apply_zoom(self, value) -> dict:
+        """设置界面缩放，返回 {"ok", "zoom", "method", "error"}。
+
+        用 WebView2 的**原生 ZoomFactor**（即浏览器自身的缩放）。
+
+        这是唯一正确的做法：原生缩放会让**布局视口**一起变大变小，
+        所以 100vh / 100% / flex 全部自动正确，既不留白也不裁切。
+
+        ⚠ 不要改用 CSS `zoom`（走过的弯路，记下来免得再犯）：
+          CSS zoom 只缩放**渲染结果**，布局视口尺寸不变 ——
+          页面仍按未缩放的视口排版，再整体缩放，于是：
+            75%  -> 内容只占约 2/3 高，下方留一大片空白
+            130% -> 内容溢出，右侧出现整页滚动条、侧边栏被裁
+          实测（视口 705px，无头 Chrome 量的 .ant-layout 底边）：
+            CSS zoom 75%  -> 底边 529，空白 176   ✗
+            CSS zoom 130% -> 底边 916，整页滚动条  ✗
+            原生 ZoomFactor -> 布局视口随之变化，天然正确 ✓
+        """
+        zoom = clamp_zoom(value)
+        window = getattr(self, "window", None)
+        if window is None:
+            return {"ok": False, "zoom": self.zoom, "method": None,
+                    "error": "当前窗口不支持缩放调整"}
+
+        # 先记录目标值：即使控件此刻尚未就绪，页面 loaded 时会按它补上
+        self.zoom = zoom
+
+        if not self._set_native_zoom(zoom):
+            return {"ok": False, "zoom": self.zoom, "method": None,
+                    "error": "当前窗口不支持缩放调整"
+                             "（浏览器模式下请用系统自带的 Ctrl +/- 缩放）"}
+        return {"ok": True, "zoom": zoom, "method": "native", "error": None}
+
+    def _set_native_zoom(self, zoom: float) -> bool:
+        """在 GUI 线程上设置 WebView2 的 ZoomFactor；成功返回 True。
+
+        ⚠ 线程安全（这是关键）：
+          js_api 的方法由 pywebview 放在**工作线程**执行
+          （util.py 里每收到一次调用就 Thread(target=_call).start()），
+          而 WinForms / WebView2 控件只能在 GUI 线程上访问 ——
+          直接在工作线程里写 control.ZoomFactor 会把消息循环卡死，
+          表现为「一拖动滑块界面就无响应」。
+
+          所以这里用 Control.Invoke 把赋值委托 marshal 回 GUI 线程。
+          window.native 是 pywebview 的平台后端对象（非公开 API），
+          因此逐层 getattr 探测，任何一层缺失都安静地失败，
+          交由调用方返回可读的错误，不抛异常、不卡界面。
+        """
+        window = getattr(self, "window", None)
+        if window is None:
+            return False
+        native = getattr(window, "native", None)
+        if native is None:
+            return False
+        invoke = getattr(native, "Invoke", None)
+        if invoke is None:
+            return False
+
+        def _assign():
+            """在 GUI 线程里执行"""
+            control = getattr(native, "webview", None)
+            if control is None:
+                return False
+            # WebView2 未初始化完成时赋值无效，用 CoreWebView2 判断
+            if getattr(control, "CoreWebView2", None) is None:
+                return False
+            control.ZoomFactor = zoom
+            return True
+
+        try:
+            # pythonnet：委托类型必须显式指定，否则 Invoke 无法重载解析
+            from System import Func, Object  # type: ignore
+            return bool(invoke(Func[Object](_assign)))
+        except Exception as exc:  # pragma: no cover - 依赖具体后端
+            logger.debug("设置原生缩放失败: %s", exc)
+            return False
+
+    def get_zoom(self) -> float:
+        """读取当前缩放倍率（以后端记录的值为准）。"""
+        return self.zoom
+
+    def _reapply_zoom_on_load(self) -> None:
+        """页面加载完成后重新套用缩放。
+
+        WebView2 在每次导航后会把 ZoomFactor 复位成 1.0，
+        因此每次 loaded 都按记录值补一次，保证刷新后缩放不丢。
+        """
+        if abs(self.zoom - DEFAULT_ZOOM) < 1e-9:
+            return
+        self._set_native_zoom(self.zoom)
 
     def _on_hotkey_fired(self) -> None:
         """全局热键触发（在热键线程里）→ 调用前端登记的 JS 回调。
@@ -1202,6 +1348,12 @@ class NativeWindow:
             text_select=True,
             js_api=self.api,
         )
+
+        # 页面每次加载完成后重新套用缩放（CSS 兜底路径刷新会丢失，见方法说明）
+        try:
+            self.window.events.loaded += self._reapply_zoom_on_load
+        except Exception as exc:  # pragma: no cover - 后端差异
+            logger.debug("登记 loaded 事件失败，缩放需在设置面板里手动恢复: %s", exc)
 
         # 窗口就绪后应用窗口特效（置顶 / 捕获排除 / 隐藏任务栏）
         threading.Thread(target=self._apply_effects_when_ready, daemon=True).start()
@@ -1259,13 +1411,24 @@ class NativeWindow:
             else:
                 capture_state = "失败（系统拒绝）"
 
+        # 界面缩放：命令行/环境变量指定了非 100% 时才套用
+        zoom_state = "100%"
+        if abs(self.zoom - DEFAULT_ZOOM) >= 1e-9:
+            result = self.apply_zoom(self.zoom)
+            zoom_state = (
+                f"{int(round(self.zoom * 100))}%（{result['method']}）"
+                if result["ok"] else "设置失败"
+            )
+
         logger.info(
-            "🪟 原生窗口已就绪 (HWND=%s)：置顶=%s, 透明度=%s, 捕获排除=%s, 隐藏任务栏=%s",
+            "🪟 原生窗口已就绪 (HWND=%s)：置顶=%s, 透明度=%s, 捕获排除=%s, "
+            "隐藏任务栏=%s, 界面缩放=%s",
             hwnd,
             "开" if self.topmost else "关",
             opacity_state,
             capture_state,
             taskbar_state,
+            zoom_state,
         )
         self._started.set()
 
@@ -1811,6 +1974,10 @@ def build_parser() -> argparse.ArgumentParser:
     window.add_argument("--opacity", type=float, default=MAX_OPACITY,
                         help=f"窗口透明度 {MIN_OPACITY}-{MAX_OPACITY}（1.0=不透明，默认 1.0）；"
                              f"也可传 20-100 的百分数，运行中可在界面顶栏拖动滑块调整")
+    window.add_argument("--zoom", type=float, default=DEFAULT_ZOOM,
+                        help=f"界面缩放 {MIN_ZOOM}-{MAX_ZOOM}（1.0=100%%，默认 1.0）；"
+                             f"也可传 {int(MIN_ZOOM * 100)}-{int(MAX_ZOOM * 100)} 的百分数，"
+                             f"运行中可在设置面板拖动滑块调整")
     window.add_argument("--debug", type=_str2bool, nargs="?", const=True, default=False,
                         help="[native 模式] 开启 WebView 开发者工具与调试日志（默认关闭）")
     window.add_argument("--hide-console", type=_str2bool, nargs="?", const=True, default=True,
@@ -1992,6 +2159,7 @@ def run_desktop(args: argparse.Namespace) -> int:
             fullscreen=args.fullscreen,
             debug=args.debug,
             opacity=_parse_opacity_arg(args.opacity),
+            zoom=clamp_zoom(args.zoom),
         )
         logger.info("ℹ 关闭窗口或按 Ctrl+C 即可退出应用")
         try:
@@ -2143,6 +2311,10 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
         raw_opacity = os.getenv("DESKTOP_OPACITY")
         if raw_opacity:
             args.opacity = _parse_opacity_arg(raw_opacity)
+    if "zoom" not in took_arg:
+        raw_zoom = os.getenv("DESKTOP_ZOOM")
+        if raw_zoom:
+            args.zoom = clamp_zoom(raw_zoom)
 
 
 def _explicit_arg_names(argv: list[str]) -> set[str]:

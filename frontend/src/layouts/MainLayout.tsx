@@ -218,8 +218,9 @@ const MainLayout: React.FC = () => {
         )}
         <Content
           style={{
-            // 全屏会话：把 24px 的大留白收到 8px，对话区更贴近边框
-            padding: focusMode ? 8 : 24,
+            // 上留白照旧；底部收窄 —— 输入框是页面最底部的元素，
+            // 留 24px 会在窗口底边多出一截空白，收到 8px 更紧凑
+            padding: focusMode ? 8 : '24px 24px 8px',
             // 跟随用户选择的背景色（由 ConfigProvider 注入）
             background: token.colorBgLayout,
             color: token.colorText,

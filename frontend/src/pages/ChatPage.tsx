@@ -730,13 +730,15 @@ const ChatPage: React.FC = () => {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        // 全屏会话模式：外层 Content 是 column flex，这里用 flex:1 撑满剩余空间
-        // （不能用 100vh —— 它不含页面上的其它元素与留白，会把底部输入框
-        //  顶出视口，导致「输入框显示不全 + 右侧出现滚动条」）。
-        // 普通模式仍按视口估算，减掉顶栏与内容区留白。
+        // 高度按「视口 - 顶栏 - 内容区留白」精确计算。
+        // 顶栏固定 48px；MainLayout 的 Content 在普通模式是 24px 上、8px 下，
+        // 共 80px。原来是写死的 140px，比实际多留 60px，
+        // 表现为输入框下方空出一大块 —— 这里改成与实际留白一致的精确值。
+        // 全屏会话模式没有顶栏、留白各 8px，且外层已是 column flex，
+        // 所以直接用 flex:1 吃满剩余空间，不依赖 vh（缩放后会算错）。
         ...(focusMode
           ? { flex: 1, minHeight: 0 }
-          : { height: 'calc(100vh - 140px)' }),
+          : { height: 'calc(100vh - 80px)' }),
       }}
     >
       {/* 顶部工具栏：全屏会话模式整个隐藏，只留一个悬浮的退出按钮 */}
