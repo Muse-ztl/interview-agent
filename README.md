@@ -124,7 +124,7 @@ chmod +x start.sh
 ./start.sh
 ```
 
-脚本会自动完成：检查 Python / Node → 创建 `.env` → 安装依赖 → 初始化数据库 → （可选）配置语音 → 启动后端与前端 → 打开浏览器。启动后访问前端 **http://localhost:5173**，API 文档 **http://localhost:8000/docs**。
+脚本会自动完成：检查 Python / Node → 创建 `.env` → 安装依赖 → 初始化数据库 → （可选）配置语音 → 启动后端与前端 → 打开浏览器。启动后访问前端 <http://localhost:5173>，API 文档 <http://localhost:8000/docs>。
 
 启动过程中会询问是否启用语音功能（默认 `n`）；选 `y` 后会继续询问 STT 推理设备（CPU / GPU）。
 
@@ -200,7 +200,7 @@ docker-compose up -d
 docker-compose ps
 ```
 
-访问 **http://localhost**（Nginx 监听 80 端口）。
+访问 <http://localhost>（Nginx 监听 80 端口）。
 
 **轻量部署（无 RAG，适合无 CUDA / 低资源环境）**
 
@@ -257,7 +257,7 @@ docker run -d \
   interview-agent
 ```
 
-访问 **http://localhost:8000**。
+访问 <http://localhost:8000>。
 
 > 需要 RAG 时去掉 `--build-arg SKIP_RAG=true`，并加上 `-e RAG_ENABLED=true` 与 `-v interview-chroma:/app/chroma_data`。
 
@@ -492,7 +492,7 @@ docker run -d \
 
 后端路由**同时注册了两套**：无前缀（`/chat/stream`）与 `/api` 前缀（`/api/chat/stream`）。这就是为什么开发模式下 Vite 会把 `/api` 前缀剥离后转发到 `:8000`。
 
-> 完整交互式文档：启动后访问 **http://localhost:8000/docs**（Swagger）或 **/redoc**。
+> 完整交互式文档：启动后访问 <http://localhost:8000/docs>（Swagger）或 `/redoc`。
 
 ### 对话与面试
 
