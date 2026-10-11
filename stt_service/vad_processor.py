@@ -4,6 +4,7 @@ Silero VAD 流式处理器
 """
 
 import logging
+import os
 import threading
 from typing import Optional
 from enum import Enum
@@ -11,6 +12,9 @@ from enum import Enum
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# 本模块所在目录（stt_service/），用于定位随包分发的 VAD 模型
+_HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 class VADState(Enum):
@@ -33,36 +37,201 @@ class VADState(Enum):
 # 正确做法是把一帧切成 512 样本的小块，逐块推理后取最大概率。
 VAD_WINDOW_SAMPLES = {8000: 256, 16000: 512}
 
-# ── 进程级 Silero 单例 ──
-# 模型加载很慢（首次需 torch.hub 拉取并解包，实测约 15 秒）。
-# 早期每个连接各加载一份，日志里会出现成串的
-# 「Silero VAD model loaded (ONNX)」。模型本身无状态，可安全共享。
+# ══════════════════════════════════════════════════════════════
+# Silero VAD —— 直接走 onnxruntime，不依赖 torch
+# ══════════════════════════════════════════════════════════════
+#
+# 背景（为什么不用 torch.hub.load）：
+#   此前用 torch.hub.load(..., onnx=True) 拿模型。它实际返回的也只是
+#   silero_vad.utils_vad.OnnxWrapper —— 内部照样是 onnxruntime 推理，
+#   torch 在这里**只承担「下载 + 解包 + 传参包装」**，一次矩阵运算都不做。
+#   代价却是整个 torch（本机 2.5.1+cu121，2~3GB），且首次加载要走
+#   GitHub 拉仓库（实测约 15 秒，国内不稳），还发生在服务启动路径上。
+#
+#   现在改为直接加载本地 .onnx + onnxruntime，行为与 OnnxWrapper
+#   **逐位一致**（已验证 max|Δ| = 0.0）。
+#
+# ⚠️ 两个必须照抄的细节，漏掉任何一个都会让 VAD 静默失准：
+#
+#   1) context 前置：每次推理前要把**上一次输入的末尾 64 个样本**拼到
+#      当前 512 样本前面，一起送进模型（输入因此是 576 样本）。
+#      这是 Silero 官方 wrapper 的做法，不是可选项 —— 少了它，
+#      同一段音频算出的概率完全不同（实测 0.102 → 0.0006）。
+#
+#   2) state 跨调用累积：模型是**有状态 RNN**，每帧返回的 stateN 必须
+#      喂给下一帧。早期注释写「模型本身无状态，可安全共享」是错的。
+#
+# 因此共享的是 session（无状态、线程安全），state/context 必须
+# **每个 VADProcessor 各持一份** —— 见 SileroVadSession。
+_hub_lock = threading.Lock()
 _silero_cache: dict = {}
-_silero_lock = threading.Lock()
+
+
+def _find_vad_model() -> str:
+    """定位 Silero VAD 的 .onnx 文件。
+
+    查找顺序（先本地、后缓存，避免任何联网行为）：
+      1) 环境变量 SILERO_VAD_ONNX 显式指定
+      2) 项目内 stt_service/models/silero_vad.onnx（随仓库分发）
+      3) torch.hub 的历史缓存（老用户机器上已经有了，直接复用不必重下）
+
+    找不到时抛 FileNotFoundError，并把「怎么办」写进错误信息 ——
+    静默返回 None 只会让 VAD 永远检测不到语音，且日志里看不出原因。
+    """
+    candidates: list[str] = []
+
+    env_path = os.getenv("SILERO_VAD_ONNX", "").strip()
+    if env_path:
+        candidates.append(env_path)
+
+    candidates.append(os.path.join(_HERE, "models", "silero_vad.onnx"))
+
+    # torch.hub 缓存：老机器上已存在，顺带兼容，省一次下载
+    hub_root = os.getenv("TORCH_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache", "torch"
+    )
+    candidates.append(
+        os.path.join(
+            hub_root, "hub", "snakers4_silero-vad_master",
+            "src", "silero_vad", "data", "silero_vad.onnx",
+        )
+    )
+
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+
+    raise FileNotFoundError(
+        "找不到 Silero VAD 模型文件 silero_vad.onnx。已查找："
+        + "、".join(p for p in candidates if p)
+        + "。请将 silero_vad.onnx 放到 "
+        + os.path.join(_HERE, "models")
+        + " 下，或用环境变量 SILERO_VAD_ONNX 指定路径。"
+    )
+
+
+def _get_shared_silero_session():
+    """取（或首次创建）进程级共享的 onnxruntime InferenceSession。
+
+    只共享 session：它是无状态的，且 onnxruntime 的 run() 可重入。
+    每帧变化的 state / context 由调用方各持一份（见 SileroVadSession）。
+    """
+    with _hub_lock:
+        if "session" in _silero_cache:
+            return _silero_cache["session"]
+
+        import onnxruntime
+
+        path = _find_vad_model()
+
+        # 与官方 OnnxWrapper 一致：单线程算子，避免与主服务的线程池争抢。
+        # 顺带规避 onnxruntime 在小张量上多线程反而更慢的问题。
+        opts = onnxruntime.SessionOptions()
+        opts.inter_op_num_threads = 1
+        opts.intra_op_num_threads = 1
+
+        # 默认 CPU：VAD 每次只算 576 样本，模型仅 2MB，
+        # 放 GPU 的拷贝开销大于收益，还会与 Whisper 争显存。
+        #
+        # 注意取值写法：默认值必须是 "true" 而不是 "1" ——
+        # 这里比较的是字符串，写 "1" 会让 `"1".lower() == "true"`
+        # 恒为 False，于是默认反而落到「用全部 provider」的分支，
+        # 实际选中 AzureExecutionProvider（需联网、引入额外延迟）。
+        force_cpu = os.getenv("SILERO_VAD_FORCE_CPU", "true").strip().lower()
+        if force_cpu in ("1", "true", "yes", "on"):
+            # 显式只给 CPU，避免本机 get_available_providers() 返回的
+            # AzureExecutionProvider 被排到第一位。
+            chosen = ["CPUExecutionProvider"]
+        else:
+            chosen = onnxruntime.get_available_providers()
+
+        logger.info("首次加载 Silero VAD（onnxruntime, %s）: %s", chosen[0], path)
+        session = onnxruntime.InferenceSession(
+            path, sess_options=opts, providers=chosen
+        )
+
+        _silero_cache["session"] = session
+        logger.info("Silero VAD 已加载并缓存，后续连接直接复用")
+        return session
+
+
+class SileroVadSession:
+    """Silero VAD 的一次「会话」—— 持有 state 与 context。
+
+    为什么必须独立于共享 session：
+        VADProcessor 是**每个 WebSocket 连接一个**（main.py 里每个连接
+        新建 StreamingTranscriber），而 InferenceSession 是进程级共享的。
+        如果把 state 存在 model 上（torch 版 OnnxWrapper 就是如此），
+        两个连接会互相污染对方的状态，表现为转写串音、丢字。
+
+    接口与原 torch 版保持兼容：可调用对象，接收 (chunk, sample_rate)，
+    返回单元素数组（调用方取 .item()），从而 _speech_probability 无需改动。
+    """
+
+    # 16kHz 与 8kHz 的窗口/上下文长度（与官方 wrapper 一致）
+    _WINDOW = {8000: 256, 16000: 512}
+    _CONTEXT = {8000: 32, 16000: 64}
+
+    def __init__(self, session, sample_rate: int = 16000):
+        self._session = session
+        self.sample_rate = sample_rate
+        self._batch_size = 1
+        self._context_size = self._CONTEXT[sample_rate]
+        self.reset_states()
+
+    def reset_states(self) -> None:
+        """清空状态。**必须**在新的音频流开始时调用。
+
+        不重置的后果：上一段音频的 RNN 状态会污染下一段，
+        且 context 里残留旧样本，概率值随之偏移。
+        """
+        self._state = np.zeros((2, self._batch_size, 128), dtype=np.float32)
+        self._context = np.zeros((self._batch_size, self._context_size), dtype=np.float32)
+
+    def __call__(self, chunk: np.ndarray, sample_rate: int = 16000):
+        """推理一个窗口，返回 shape (1,1) 的概率数组。
+
+        chunk 长度必须等于 _WINDOW[sample_rate]（16k→512），
+        否则 onnxruntime 会因为形状不符而报错 —— 这里提前校验并
+        给出可读的错误，避免上层只看到 ORT 的晦涩提示。
+        """
+        expected = self._WINDOW.get(sample_rate)
+        if expected is None:
+            raise ValueError(f"Silero VAD 不支持的采样率: {sample_rate}")
+
+        x = np.asarray(chunk, dtype=np.float32).reshape(1, -1)
+        if x.shape[1] != expected:
+            raise ValueError(
+                f"Silero VAD 输入样本数应为 {expected}（{sample_rate}Hz），"
+                f"实际收到 {x.shape[1]}"
+            )
+
+        # 关键细节 1：拼上上一帧末尾的 context（512 → 576）
+        x = np.concatenate([self._context, x], axis=1)
+
+        # 关键细节 2：state 跨帧传递，输出回写
+        out, state = self._session.run(
+            None,
+            {
+                "input": x,
+                "state": self._state,
+                "sr": np.array(sample_rate, dtype=np.int64),
+            },
+        )
+        self._state = state
+        self._context = x[..., -self._context_size:]
+        return out
 
 
 def _get_shared_silero():
-    """取（或首次加载）进程级共享的 Silero VAD 模型。
+    """取共享 session 并包出一份**独立的**会话状态。
 
-    返回 (model, get_speech_timestamps)。
+    返回 (SileroVadSession, None)。第二个元素保留是为了兼容既有调用方
+    的解包写法（原先返回 (model, get_speech_timestamps)，而后者在本
+    项目中从未被使用 —— 状态机是 VADProcessor 自己实现的）。
     """
-    with _silero_lock:
-        if "model" in _silero_cache:
-            return _silero_cache["model"], _silero_cache["utils"]
-
-        import torch
-
-        logger.info("首次加载 Silero VAD 模型（ONNX）…")
-        model, utils = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            force_reload=False,
-            onnx=True,
-        )
-        _silero_cache["model"] = model
-        _silero_cache["utils"] = utils[0]
-        logger.info("Silero VAD 模型已加载并缓存，后续连接直接复用")
-        return model, utils[0]
+    session = _get_shared_silero_session()
+    return SileroVadSession(session, sample_rate=16000), None
 
 
 class VADProcessor:
@@ -135,16 +304,18 @@ class VADProcessor:
     # ── 懒加载模型 ──
 
     def _ensure_model(self):
-        """确保 Silero VAD 模型可用（复用进程级共享实例）
+        """确保 Silero VAD 模型可用（复用进程级共享 session）
 
-        与 Whisper 同理：模型加载慢（首次还要 torch.hub 拉取），
-        每个连接各加载一份会白白浪费十几秒与显存。
-        VAD 模型本身是无状态的（状态机在 VADProcessor 实例上），
-        因此可以安全共享。
+        与 Whisper 同理：模型加载慢，每个连接各加载一份会白白浪费
+        时间与显存。session 本身无状态，可安全共享；
+        每帧变化的 state/context 由本实例独享（见 SileroVadSession）。
         """
         if self._model is not None:
             return
         self._model, self._get_speech_timestamps = _get_shared_silero()
+        # 新连接是一段全新的音频流：必须清空 RNN 状态，
+        # 否则会继承上一个连接的残留状态与 context。
+        self._model.reset_states()
 
     # ── 核心：逐帧处理 ──
 
@@ -165,11 +336,6 @@ class VADProcessor:
             logger.warning("Silero VAD 不支持 %d Hz，语音检测已跳过", self.sample_rate)
             return 0.0
 
-        try:
-            import torch
-        except ImportError:  # pragma: no cover
-            return 0.0
-
         audio = np.asarray(audio_frame, dtype=np.float32).reshape(-1)
         if audio.size < window:
             return 0.0
@@ -178,9 +344,9 @@ class VADProcessor:
         for start in range(0, audio.size - window + 1, window):
             chunk = audio[start:start + window]
             try:
-                prob = float(
-                    self._model(torch.from_numpy(chunk.copy()), self.sample_rate).item()
-                )
+                # 不再需要 torch.from_numpy：onnxruntime 直接吃 numpy。
+                # 这是每帧都在跑的热路径，省掉一次张量包装。
+                prob = float(self._model(chunk, self.sample_rate).item())
             except Exception as exc:
                 # 这里不再静默吞掉：早期版本把 ValueError 当成 prob=0，
                 # 导致语音永远检测不到，且完全没有日志可查。

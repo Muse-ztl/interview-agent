@@ -54,7 +54,8 @@ class _SharedFakeModel:
     """进程级共享的假 Silero：保证同一进程只构造一次
 
     本文件只驱动 VAD 的状态机（_speech_probability 被逐个测试替换掉），
-    因此假模型不需要真的能推理，只需可被共享、可被赋值给 _model。
+    因此假模型不需要真的能推理，只需可被共享、可被赋值给 _model，
+    并具备 _ensure_model 会调用的 reset_states()。
     """
     _instance = None
 
@@ -62,6 +63,10 @@ class _SharedFakeModel:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
+
+    def reset_states(self):
+        """与真实 SileroVadSession 接口对齐（_ensure_model 会调用）"""
+        self.reset_calls = getattr(self, "reset_calls", 0) + 1
 
 
 # ══════════════════════════════════════════════════════════════

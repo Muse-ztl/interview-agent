@@ -103,16 +103,24 @@ def load_config() -> STTConfig:
 
     # 常见配置错误提前提示，避免用户对着「识别结果差」无从下手
     if device == "cuda":
+        # 这里必须查 **CTranslate2** 的 CUDA，而不是 torch 的。
+        #
+        # 旧实现 import torch 后看 torch.cuda.is_available()，是错的：
+        # Whisper 推理走的是 CTranslate2（faster-whisper），它自带
+        # CUDA 运行库、与 torch 完全独立。两者结论经常不一致 ——
+        # 没装 torch 时旧代码直接 ImportError 静默跳过（等于没检查），
+        # 装了 CPU 版 torch 时又会误报「将回退到 CPU」，
+        # 而实际上 CT2 好端端地跑在 GPU 上。
         try:
-            import torch
+            import ctranslate2
 
-            if not torch.cuda.is_available():
+            if ctranslate2.get_cuda_device_count() < 1:
                 logger.warning(
-                    "STT_DEVICE=cuda 但当前环境的 torch 检测不到 CUDA，"
-                    "将回退到 CPU（速度会明显变慢）"
+                    "STT_DEVICE=cuda 但 CTranslate2 检测不到 CUDA 设备"
+                    "（可能缺 cuBLAS/cuDNN），将回退到 CPU，速度会明显变慢"
                 )
-        except ImportError:
-            pass
+        except Exception as exc:  # 未安装或探测失败都不该影响启动
+            logger.warning("无法探测 CTranslate2 的 CUDA 可用性: %s", exc)
 
     if model in ("tiny", "base") :
         logger.warning(

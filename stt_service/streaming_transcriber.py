@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 # 进程级模型单例
 # ══════════════════════════════════════════════════════════════
 #
-# Whisper 与 Silero VAD 的加载都很慢（实测 Whisper 在 CUDA 上约 11 秒，
-# Silero 约 15 秒，因为要 torch.hub 下载/解包）。早期实现里
+# Whisper 与 Silero VAD 的加载都不便宜（实测 Whisper 在 CUDA 上约 11 秒；
+# Silero 从本地 .onnx 加载已快很多，此前走 torch.hub 下载/解包约 15 秒）。
+# 早期实现里
 # **每个 WebSocket 连接都 new 一个 StreamingTranscriber 并各自加载**，
 # 于是：
 #   - 每次点开监听都要等十几秒才 ready；

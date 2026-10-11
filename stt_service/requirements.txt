@@ -4,9 +4,14 @@ uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 ffmpeg-python>=0.2.0
 websockets>=12.0
-silero-vad>=5.0
 numpy>=1.24.0
-torch>=2.0.0
+
+# Silero VAD 的推理后端。
+# 这里**不需要** torch / silero-vad 包：VAD 直接加载
+# models/silero_vad.onnx（随仓库分发）并用 onnxruntime 推理。
+# torch 原先只被用来 torch.hub 下载与包装模型，一次运算都不做，
+# 却要拖进 2~3GB 依赖且首次加载需联网。详见 vad_processor.py 顶部说明。
+onnxruntime>=1.17.0
 
 # 繁简转换：faster-whisper 的中文输出默认是繁体，转成简体后再返回。
 # 纯 Python 实现，无需编译。

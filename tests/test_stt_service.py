@@ -583,11 +583,29 @@ def test_transcriber_reuses_shared_model():
 
 
 def test_silero_model_shared():
-    """Silero VAD 模型也应共享"""
+    """Silero VAD 的 onnxruntime session 应共享，但状态必须各自独立。
+
+    为什么断言的是 session 而不是 model 对象本身：
+        Silero 是**有状态 RNN**，每帧的 state/context 必须逐帧回喂。
+        若让多个 VADProcessor 共用一个带状态的对象（旧 torch 版
+        OnnxWrapper 就是如此），两个 WebSocket 连接会互相污染状态，
+        表现为转写串音/丢字。
+        因此这里共享的是无状态的 InferenceSession（加载贵、可重入），
+        而 SileroVadSession 每个 VADProcessor 各持一份。
+    """
     import vad_processor as vp
 
     a = vp.VADProcessor(sample_rate=16000)
     b = vp.VADProcessor(sample_rate=16000)
     a._ensure_model()
     b._ensure_model()
-    assert a._model is b._model, "Silero 模型未共享"
+
+    # 昂贵的 session 只加载一次、被共享
+    assert a._model._session is b._model._session, "Silero session 未共享"
+
+    # 但状态对象必须彼此独立，否则连接之间会串状态
+    assert a._model is not b._model, "状态不应在连接间共享"
+
+    # 状态互相独立：改一个不应影响另一个
+    a._model._state[:] = 1.0
+    assert b._model._state.max() == 0.0, "状态被跨实例污染"
