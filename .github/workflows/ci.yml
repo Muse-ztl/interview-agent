@@ -1,0 +1,130 @@
+name: CI
+
+# 触发条件：
+#   - 往 master 提 PR / 直接推 master 时跑全量检查
+#   - 手动触发，方便在改依赖或换 runner 后单独验证
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+# 同一分支上连续推送时，取消还在跑的旧任务，省 CI 配额
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ════════════════════════════════════════════════════════════
+  # 后端：pytest
+  # ════════════════════════════════════════════════════════════
+  backend:
+    name: 后端测试 (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 对齐 Dockerfile；3.12 提前发现「将来换版本会坏」的问题
+        python-version: ["3.11", "3.12"]
+
+    env:
+      # 测试用临时库由 tests/conftest.py 自行设置，这里只兜底默认值，
+      # 避免任何路径意外写到仓库里的 data/*.db
+      AUTH_REQUIRED: "true"
+      # STT 微服务不在 CI 里启动；用例断言的是「连不上时也要能降级」，
+      # 因此这里显式留空地址，让行为确定而不是碰运气
+      STT_SERVICE_URL: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # 依赖分两处，缺一不可：
+      #   - requirements.txt        应用本体
+      #   - stt_service/requirements.txt  STT 微服务（faster-whisper / onnxruntime / zhconv）
+      # 后者容易被漏掉：tests/test_stt_service.py 在用例内部直接
+      # `import faster_whisper`，本机因为跑过 start.bat 恰好装着，
+      # 干净 runner 上就会 ModuleNotFoundError。
+      # 刻意不装：
+      #   - requirements-rag.txt 会拖进 sentence-transformers + torch（约 2GB），
+      #     而 RAG 用例要么跳过、要么不依赖真实向量库；
+      #   - windows-capture / pywebview / soundcard 是 Windows 专有包，
+      #     Linux 上装不上，代码里已有可用性降级。
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r stt_service/requirements.txt
+
+      - name: 运行 pytest
+        run: pytest -v --color=yes
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-${{ matrix.python-version }}
+          path: |
+            .pytest_cache/v/cache/lastfailed
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ════════════════════════════════════════════════════════════
+  # 前端：类型检查 + 构建 + lint
+  # ════════════════════════════════════════════════════════════
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci 要求 lock 文件与 package.json 严格一致；
+      # 没有 lock 文件时退化为 npm install，否则 CI 直接红。
+      - name: 安装依赖
+        working-directory: frontend
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::未找到 frontend/package-lock.json，退化为 npm install（构建不可复现）"
+            npm install
+          fi
+
+      # build 脚本本身是 `tsc -b && vite build`，类型错误会在这里失败
+      - name: 类型检查与构建
+        working-directory: frontend
+        run: npm run build
+
+      # Lint 目前**不作为门禁**：仓库里存着 44 个历史 lint 错误
+      # （未使用变量、effect 内同步 setState 等），一旦设为硬门禁，
+      # 任何 PR 都会因为与改动无关的历史问题变红，反而没人看 CI。
+      # continue-on-error 让结果照常出现在日志里，修完历史问题后
+      # 把这个开关去掉即可升级为门禁。
+      - name: Lint（当前不阻断）
+        working-directory: frontend
+        continue-on-error: true
+        run: npm run lint
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7

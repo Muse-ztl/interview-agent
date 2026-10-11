@@ -15,7 +15,16 @@ os.environ["DATABASE_URL"] = (
 # 因此必须在 `from main import app` 之前打开开关，否则
 # /system-audio/* 根本不存在，测试会拿到 404/405。
 # 生产默认仍是关闭（见 .env.example）。
-os.environ.setdefault("SYSTEM_AUDIO_ENABLED", "true")
+os.environ["SYSTEM_AUDIO_ENABLED"] = "true"
+
+# 但**必须关掉自动启动**：main.py 的 lifespan 会在启动时按
+# SYSTEM_AUDIO_AUTOSTART 真正打开一次 WASAPI 回环捕获，把会话塞进
+# routers.system_audio._session。测试没有伪造那一层，于是：
+#   - 断言「空闲时 running 为 False」的用例会看到 True 而失败；
+#   - 而且会去占用真实声卡，在无音频设备的 CI 上必然失败。
+# 用例需要会话时都是自己显式调 POST /system-audio/start，
+# 因此这里统一关掉，让测试与机器是否插着声卡无关。
+os.environ["SYSTEM_AUDIO_AUTOSTART"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient

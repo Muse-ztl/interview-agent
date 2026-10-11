@@ -47,9 +47,15 @@ COPY services/ ./services/
 COPY models/ ./models/
 COPY prompts/ ./prompts/
 COPY utils/ ./utils/
-COPY positions.json ./
 COPY data/ ./data/
-COPY hf_cache/ ./hf_cache/
+
+# 注意：这里刻意**不**复制 positions.json 与 hf_cache/。
+# 两者都在 .gitignore 里，干净的 clone 中并不存在，之前写成
+# `COPY positions.json ./` / `COPY hf_cache/ ./hf_cache/` 会让
+# docker build 在 CI 与新机器上以「找不到源文件」直接失败：
+#   - positions.json 已废弃，岗位数据改由数据库承载（services/position_store.py）；
+#   - hf_cache 只是 sentence-transformers 的本地模型缓存，
+#     缺失时首次调用会自行下载（RAG 本就是可选功能，见 requirements-rag.txt）。
 
 # 复制前端构建产物（将由 FastAPI 托管）
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
