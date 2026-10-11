@@ -17,7 +17,11 @@
 default_language_version:
   python: python3
 
-# 排除构建产物与第三方代码，避免钩子误改非源码文件
+# 排除构建产物、缓存与第三方生成物，避免钩子误改非源码文件。
+#
+# 注意：tts_models/ 下的 .onnx.json 是 Piper 的语音模型配置（随仓库提交），
+# 属生成物且体量大，不纳入格式类检查；但其 JSON 语法仍应可校验，
+# 因此这里只排除「模型文件」，不排除整个目录。
 exclude: |
   (?x)^(
     frontend/node_modules/.*|
@@ -28,7 +32,6 @@ exclude: |
     chroma_data/.*|
     screenshots/.*|
     logs/.*|
-    tts_models/.*|
     .*\.min\.(js|css)
   )$
 
@@ -38,20 +41,38 @@ repos:
     rev: v6.0.0
     hooks:
       - id: check-yaml
-      # JSON 校验：package-lock.json 由 npm 生成，体量大且格式不受控，排除
+      # JSON 校验
+      #
+      # 排除 JSONC（含注释的 JSON）—— 下面这些文件由各自的工具消费，
+      # 本身就允许注释，删掉注释才能通过校验属于本末倒置：
+      #   .vscode/settings.json   VS Code 原生支持注释
+      #   tsconfig*.json          TypeScript 官方允许注释
+      # package-lock.json 由 npm 生成，体量大且格式不受控，同样排除。
       - id: check-json
-        exclude: ^frontend/package-lock\.json$
+        exclude: |
+          (?x)^(
+            frontend/package-lock\.json|
+            \.vscode/settings\.json|
+            frontend/tsconfig.*\.json
+          )$
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=1024]
       # 换行统一为 LF。仓库内文本本就以 LF 存储（见 .gitattributes），
-      # 此钩子防止 Windows 下误提交 CRLF。.bat/.cmd 已声明为 binary，
-      # 不在此列 —— 它们含中文且依赖 UTF-8 无 BOM，改动会破坏 cmd 解析。
+      # 此钩子防止 Windows 下误提交 CRLF。
+      #
+      # 排除两类文件：
+      #   .bat/.cmd     含中文且依赖 UTF-8 无 BOM + CRLF，
+      #                 任何「规范化」都可能破坏 cmd 解析（详见 .gitattributes）
+      #   tts_models/   Piper 语音模型与配置，属第三方生成物，不应改动
       - id: mixed-line-ending
         args: [--fix=lf]
-        exclude: \.(bat|cmd)$
+        exclude: (\.(bat|cmd)|^tts_models/.*)$
+      # 补齐文件末尾换行。同样排除 .bat/.cmd —— 理由同上，
+      # 且 start_app.bat 历来无末尾换行，改它没有收益却引入风险。
       - id: end-of-file-fixer
+        exclude: (\.(bat|cmd)|^tts_models/.*)$
       - id: trailing-whitespace
       # 私有密钥检测：.env 已被 .gitignore 排除，此处兜底防误提交
       - id: detect-private-key
