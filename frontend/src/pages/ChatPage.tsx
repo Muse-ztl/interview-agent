@@ -183,25 +183,76 @@ const ChatPage: React.FC = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
+  /** 视口是否停在底部（自动滚动的唯一依据） */
   const [autoScroll, setAutoScroll] = useState(true)
+  /** 同一帧内的多个滚动源只吸附一次，避免重复 scrollIntoView 造成抖动 */
+  const rafRef = useRef<number | null>(null)
+  /** 区分「用户手动滚动」与「程序自动滚动」：后者不应把 autoScroll 关掉 */
+  const programmaticScrollRef = useRef(false)
 
-  // 自动滚动到底部
-  // 流式输出时使用 behavior: 'auto'（瞬时滚动），避免 smooth 动画与新内容竞争导致界面抖动
-  // 非流式时（消息列表变化）使用 behavior: 'smooth'，提供舒适的滚动体验
+  /**
+   * 自动滚动到底部。
+   *
+   * 规则：**只有视口本来就在底部时才跟随新内容**。用户手动上滚查看历史后，
+   * 发送新消息、流式输出都不会把视口拽回底部；等用户自己滚回底部，跟随自动恢复。
+   */
   useEffect(() => {
-    if (autoScroll && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({
-        behavior: isStreaming ? 'auto' : 'smooth',
-        block: 'end',
+    if (!autoScroll) return
+    const el = chatContainerRef.current
+    if (!el) return
+
+    // 合并同一帧内的多次触发（messages / currentContent / currentReasoning 会各自引起一次渲染）
+    if (rafRef.current !== null) return
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null
+      const node = chatContainerRef.current
+      if (!node) return
+      programmaticScrollRef.current = true
+      // 流式输出用瞬时滚动，避免 smooth 动画与新内容竞争导致界面抖动
+      if (isStreaming) {
+        node.scrollTop = node.scrollHeight
+      } else {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      }
+      // 滚动事件是异步派发的，下一帧再解除标记（期间用户手动滚动仍能生效）
+      requestAnimationFrame(() => {
+        programmaticScrollRef.current = false
       })
-    }
+    })
   }, [messages, currentContent, currentReasoning, autoScroll, isStreaming])
 
-  // 检测用户手动上滚
+  // 卸载时取消未执行的滚动帧
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+    }
+  }, [])
+
+  /** 检测视口是否停在底部（程序触发的滚动不改变该状态） */
   const handleScroll = useCallback(() => {
-    if (!chatContainerRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current
+    const el = chatContainerRef.current
+    if (!el) return
+    if (programmaticScrollRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = el
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 100)
+  }, [])
+
+  /**
+   * 发送新消息前，按当时的视口位置决定是否跟随。
+   *
+   * 之前这里无条件 setAutoScroll(true)，导致用户上滚看历史时一发消息就被拉到底部；
+   * 现在改为「在底部才跟随」——但滚动容差收紧到 4px：若原本已在底部，
+   * 新消息把内容顶下去后 100px 的判定会立刻变成 false 而误判为「用户上滚」，
+   * 用视口当前是否贴底来判定更准确。
+   */
+  const syncAutoScrollBeforeSend = useCallback(() => {
+    const el = chatContainerRef.current
+    if (!el) return
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    setAutoScroll(distance < 4)
   }, [])
 
   const handleSend = async () => {
@@ -219,7 +270,7 @@ const ChatPage: React.FC = () => {
     lastAIQuestionRef.current = ''
 
     setInputValue('')
-    setAutoScroll(true)
+    syncAutoScrollBeforeSend()
     try {
       await sendMessage(text)
     } catch {
@@ -268,7 +319,7 @@ const ChatPage: React.FC = () => {
         const next = askQueueRef.current.shift()
         if (!next) break
 
-        setAutoScroll(true)
+        syncAutoScrollBeforeSend()
         try {
           // 用 displayLabel 标注来源，避免用户分不清是手打还是听来的
           await sendMessage(next, { displayLabel: '🎧 系统音频' })
@@ -279,7 +330,7 @@ const ChatPage: React.FC = () => {
     } finally {
       askingRef.current = false
     }
-  }, [sendMessage, message])
+  }, [sendMessage, message, syncAutoScrollBeforeSend])
 
   // 每次渲染同步最新的 drain 实现
   drainRef.current = drainAskQueue
@@ -305,8 +356,8 @@ const ChatPage: React.FC = () => {
           handleTranscriptQuestion(text)
         } else {
           // 不自动发送时，追加到输入框（保留用户已输入的内容）
+          // 只填输入框、不产生新消息，因此不动视口：用户上滚看历史时不该被拽回底部
           setInputValue((prev) => (prev.trim() ? `${prev} ${text}` : text))
-          setAutoScroll(true)
         }
       },
       onError: (err) => message.error(`系统音频：${err}`),
@@ -404,7 +455,7 @@ const ChatPage: React.FC = () => {
 
       addMessage({ role: 'assistant', content: `${meta}\n\n${res.answer}` })
       setInputValue('')
-      setAutoScroll(true)
+      syncAutoScrollBeforeSend()
       message.success(`识别完成（${(res.elapsed_ms / 1000).toFixed(1)}s）`)
     } catch (err) {
       const detail = (err as Error).message || '截图识别失败'
