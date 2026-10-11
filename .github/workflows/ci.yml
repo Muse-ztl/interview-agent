@@ -55,11 +55,17 @@ jobs:
       # 后者容易被漏掉：tests/test_stt_service.py 在用例内部直接
       # `import faster_whisper`，本机因为跑过 start.bat 恰好装着，
       # 干净 runner 上就会 ModuleNotFoundError。
-      # 刻意不装：
-      #   - requirements-rag.txt 会拖进 sentence-transformers + torch（约 2GB），
-      #     而 RAG 用例要么跳过、要么不依赖真实向量库；
-      #   - windows-capture / pywebview / soundcard 是 Windows 专有包，
-      #     Linux 上装不上，代码里已有可用性降级。
+      #
+      # Windows 专有依赖（windows-capture / pywebview / soundcard）已在
+      # requirements.txt 里用 `; sys_platform == "win32"` 标记，
+      # pip 在 ubuntu-latest 上会自动**跳过**它们，不会再去编译
+      # windows-capture 的 Rust 源码（那正是之前 CI 失败的原因：
+      # × Failed to build installable wheels ... windows-capture）。
+      # 无需在这里做额外的排除处理。
+      #
+      # 唯一刻意不装的是 requirements-rag.txt：它会拖进
+      # sentence-transformers + torch（约 2GB），而 RAG 用例要么跳过、
+      # 要么不依赖真实向量库。
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip

@@ -24,19 +24,47 @@ python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 bcrypt==4.0.1
 
-# 独立窗口模式（desktop.py）所需的原生窗口（Edge WebView2 内核）
-# 未安装时会自动回退到系统浏览器 --app 窗口模式
-pywebview>=5.0
+# ══════════════════════════════════════════════════════════════
+# Windows 专有依赖 —— 必须带 sys_platform 环境标记
+# ══════════════════════════════════════════════════════════════
+#
+# 下面三项只在 Windows 上有意义，其中 windows-capture 更是**只有
+# win_amd64 的 wheel**（PyPI 上每个版本都只发布 *-win_amd64.whl 与
+# sdist）。在 Linux/macOS 上 pip 拿不到 wheel 就会去编译它的 Rust
+# 源码，直接构建失败：
+#     × Failed to build installable wheels ... windows-capture
+# 这正是 CI 在 ubuntu-latest 上装依赖时挂掉的原因。
+#
+# 加 `; sys_platform == "win32"` 之后，pip 在非 Windows 平台会**跳过**
+# 这些包，不再尝试编译；而 Windows 上的安装行为完全不变。
+#
+# 对应的运行时代码早已做好降级，缺包不会崩，只是该功能不可用：
+#   - services/screen_capture.py：IS_WINDOWS + WC_AVAILABLE 双重判断，
+#     缺包时接口返回明确的安装指引（而不是 500）；
+#   - services/system_audio.py：IS_WINDOWS + SC_AVAILABLE，非 Windows
+#     时 is_available() 为 False 并说明「仅支持 Windows」；
+#   - desktop.py：整份都是 Windows 原生窗口壳，所有 Win32 调用
+#     （SetWindowDisplayAffinity / RegisterHotKey / 控制台隐藏等）
+#     都包在 `if IS_WINDOWS:` 里，在其它系统上会走浏览器回退分支。
+# 因此 Linux 上跳过这些包是安全的，服务本身可以正常跑（含 CI 测试）。
+
+# 独立窗口模式（desktop.py）所需的原生窗口（Edge WebView2 内核）。
+# 虽然 pywebview 本身是 py3-none-any，但作为原生 GUI 外壳只在
+# Windows 上实际使用；未安装/不可用时自动回退到浏览器 --app 窗口。
+pywebview>=5.0; sys_platform == "win32"
 
 # 截图答题（services/screen_capture.py + AI 对话页的「截图」按钮）
 # windows-capture：Rust 实现，基于 Windows Graphics Capture，
-# 按显示器捕获，是整屏截图的捕获后端。仅支持 Windows。
+# 按显示器捕获，是整屏截图的捕获后端。**仅发布 win_amd64 wheel**。
 # 安装时会一并带上 numpy 与 opencv-python。
-windows-capture>=2.0.1
-pillow>=10.0.0
+windows-capture>=2.0.1; sys_platform == "win32"
 
 # 系统音频捕获（services/system_audio.py + /system-audio 接口）
 # soundcard：纯 cffi 实现，直接暴露 WASAPI 回环，
-# 用于抓取「电脑正在播放的声音」并送去 STT。仅 Windows 可用。
+# 用于抓取「电脑正在播放的声音」并送去 STT。回环能力仅 Windows 可用。
 # 相比 sounddevice/PyAudio，它无需编译、loopback 开箱即用。
-soundcard>=0.4.3
+soundcard>=0.4.3; sys_platform == "win32"
+
+# pillow 是跨平台包（manylinux/macosx/win 都有 wheel），
+# 截图编码在非 Windows 上也有用途，因此不加平台标记。
+pillow>=10.0.0
