@@ -7,7 +7,33 @@ import asyncio
 import logging
 import os
 import threading
+import sys
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
+
+# 保持 DLL 句柄存活，避免运行期间卸载。
+_windows_runtime_handles = []
+
+
+def _prepare_windows_runtime():
+    """Conda 的旧版 C++ DLL 会使 Whisper / ONNX Runtime 导入时访问冲突。"""
+    if sys.platform != "win32" or not os.path.isdir(os.path.join(sys.base_prefix, "conda-meta")):
+        return
+    if _windows_runtime_handles:
+        return
+    import ctypes
+
+    system_dir = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    for name in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"):
+        path = os.path.join(system_dir, name)
+        if not os.path.isfile(path):
+            raise RuntimeError("缺少系统 C++ 运行库，请安装 Microsoft Visual C++ 2015–2022 Redistributable (x64)")
+        _windows_runtime_handles.append(ctypes.WinDLL(path))
+    logger.info("Conda 环境：已预加载系统 C++ 运行库供 Whisper / ONNX Runtime 使用")
+
+
+_prepare_windows_runtime()
 
 import numpy as np
 from vad_processor import VADProcessor

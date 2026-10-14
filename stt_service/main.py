@@ -226,7 +226,7 @@ async def transcribe(file: UploadFile = File(...)):
 
         # 转录 — HTTP 批量模式跳过 VAD，直接全量转录
         transcriber = get_transcriber()
-        transcriber._ensure_model()
+        await asyncio.to_thread(transcriber._ensure_model)
 
         # faster-whisper 需要 float32 输入
         segments, info = transcriber._model.transcribe(

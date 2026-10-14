@@ -301,9 +301,13 @@ class AudioTranscribeSession:
         try:
             await ws.send(pcm)
         except Exception as exc:
+            # 已积压的发送任务可能同时失败，只处理当前连接的第一次断线。
+            if self._ws is not ws or not self.stt_connected:
+                return
             self.stt_connected = False
             self.stt_error = f"STT 连接已断开：{exc}"
             logger.warning(self.stt_error)
+            self._schedule_reconnect()
 
     def _on_audio_error(self, message: str) -> None:
         self.audio_error = message
