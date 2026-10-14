@@ -9,6 +9,7 @@ SSE 流式输出，支持 RAG 向量知识库 + 联网搜索
 """
 
 import logging
+import mimetypes
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -43,6 +44,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+# Windows 注册表可能把 .js 映射成 text/plain；模块脚本要求 JavaScript MIME。
+mimetypes.init()
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
 
 # 应用级 404 兜底要用到（见文件末尾的 api_not_found_handler）
 from starlette.exceptions import HTTPException as StarletteHTTPException
