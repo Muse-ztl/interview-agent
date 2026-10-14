@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import sys
 import wave
 from typing import Optional
 
@@ -68,6 +69,27 @@ async def startup_event():
         logger.error("TTS voice model preload failed: %s", e)
 
 
+# 保持 DLL 句柄存活，避免运行期间卸载。
+_windows_runtime_handles = []
+
+
+def _prepare_windows_runtime():
+    """Conda 的旧版 C++ DLL 会使 ONNX Runtime 导入时访问冲突。"""
+    if sys.platform != "win32" or not os.path.isdir(os.path.join(sys.base_prefix, "conda-meta")):
+        return
+    if _windows_runtime_handles:
+        return
+    import ctypes
+
+    system_dir = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    for name in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"):
+        path = os.path.join(system_dir, name)
+        if not os.path.isfile(path):
+            raise RuntimeError("缺少系统 C++ 运行库，请安装 Microsoft Visual C++ 2015–2022 Redistributable (x64)")
+        _windows_runtime_handles.append(ctypes.WinDLL(path))
+    logger.info("Conda 环境：已预加载系统 C++ 运行库供 ONNX Runtime 使用")
+
+
 def _ensure_voice():
     """确保 Piper TTS 语音模型已加载"""
     global _voice, _model_loaded, _model_error, _model_path
@@ -75,6 +97,7 @@ def _ensure_voice():
         return _voice
 
     try:
+        _prepare_windows_runtime()
         import piper.voice
 
         # 模型路径：HF 子目录优先（下载位置），再检查根目录

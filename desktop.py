@@ -1623,27 +1623,8 @@ def _find_free_port(host: str, start: int, attempts: int = 20) -> int:
 # 语音微服务（STT / TTS）— 进程内启动
 # ══════════════════════════════════════════════════════════════
 #
-# 为什么放在进程内而不是像 start.bat 那样 `start cmd /c uvicorn ...`：
-#
-#   本模块的存在意义就是「只有一个窗口」。用 start 拉子进程会给每个
-#   微服务弹出一个控制台窗口，与桌面版的形态直接冲突 —— 用户要的是
-#   一个独立窗口，不是四个黑框。
-#
-#   关键在于 STT / TTS 服务并不需要独立进程：
-#     * /api/stt、/api/tts 代理路由通过 STT_SERVICE_URL / TTS_SERVICE_URL
-#       走 HTTP，地址指向哪里都行；
-#     * 系统音频捕获（services/audio_transcribe.py）自己从
-#       STT_SERVICE_URL 推导 ws 地址，同样不在乎进程边界。
-#   因此把它们的 FastAPI app 挂在本进程的 uvicorn 线程上即可，
-#   端口仍是 .env 里约定的 8001 / 8002，对调用方完全透明。
-#
-#   代价：STT 的 Whisper 推理会与主服务共享 GIL。实测可接受 ——
-#   主服务是 IO 密集（等 DeepSeek 流式返回），Whisper 在
-#   faster-whisper 内部走 CTranslate2，会主动释放 GIL。
-
-# stt_service / tts_service 目录下没有 __init__.py，不能作为包导入。
-# 导入前需要把各自的目录临时插入 sys.path，导入后立刻还原，
-# 避免污染主进程的模块搜索路径。
+# 语音服务使用隐藏子进程，隔离 Whisper / PyTorch 等原生依赖。
+# Windows 下 CREATE_NO_WINDOW 避免额外控制台；输出追加到独立服务日志。
 _VOICE_SERVICE_MODULES = {
     "STT": ("stt_service", "main", "faster_whisper"),
     "TTS": ("tts_service", "main", "piper"),
@@ -1731,7 +1712,7 @@ def voice_services_enabled() -> tuple[bool, bool]:
 
 
 class _MicroService:
-    """在本进程内以 uvicorn 线程运行的语音微服务"""
+    """在隐藏子进程中运行的语音微服务"""
 
     def __init__(self, name: str, directory: str, module: str, host: str, port: int):
         self.name = name
@@ -1739,8 +1720,8 @@ class _MicroService:
         self.module = module
         self.host = host
         self.port = port
-        self.server = None
-        self.thread: Optional[threading.Thread] = None
+        self.process: Optional[subprocess.Popen] = None
+        self.log_file = None
 
     @property
     def url(self) -> str:
@@ -1787,7 +1768,7 @@ class _MicroService:
                 sys.path.remove(abs_dir)
 
     def start(self) -> bool:
-        """检查依赖 → 导入 app → 起 uvicorn 线程；成功返回 True"""
+        """启动隐藏 uvicorn 子进程；健康检查成功返回 True"""
         # 端口被占用：多半是上次残留或用户已用 start.bat 起过一个。
         # 不抢占、不报错退出，直接复用已有服务。
         if not _port_available(self.host, self.port):
@@ -1797,52 +1778,52 @@ class _MicroService:
             )
             return True
 
-        _dir, _mod, dep = _VOICE_SERVICE_MODULES[self.name]
+        root = os.path.dirname(os.path.abspath(__file__))
+        log_dir = os.path.join(root, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, f"{self.name.lower()}-service.log")
         try:
-            __import__(dep)
-        except ImportError:
-            logger.warning(
-                "⚠ %s 依赖 `%s` 未安装，跳过启动。\n"
-                "   可执行:  %s -m pip install faster-whisper silero-vad piper-tts zhconv",
-                self.name, dep, os.path.basename(sys.executable),
+            self.log_file = open(log_path, "a", encoding="utf-8")
+            self.process = subprocess.Popen(
+                [sys.executable, "-X", "faulthandler", "-m", "uvicorn",
+                 f"{self.directory}.{self.module}:app", "--host", self.host,
+                 "--port", str(self.port), "--log-level",
+                 os.getenv("LOG_LEVEL", "info").lower(), "--no-access-log"],
+                cwd=root,
+                stdout=self.log_file,
+                stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
             )
-            return False
-
-        try:
-            app = self._import_app()
+            deadline = time.monotonic() + 60.0
+            while time.monotonic() < deadline:
+                if self.process.poll() is not None:
+                    logger.error("❌ %s 服务退出（退出码 %s），日志: %s",
+                                 self.name, self.process.returncode, log_path)
+                    self.stop()
+                    return False
+                if _wait_for_server(self.url + "/health", timeout=1.0):
+                    logger.info("🎙 %s 服务已就绪: %s（PID %s）",
+                                self.name, self.url, self.process.pid)
+                    return True
+            logger.error("❌ %s 服务启动超时，日志: %s", self.name, log_path)
         except Exception as exc:
-            logger.error("❌ %s 模块加载失败: %s: %s", self.name, type(exc).__name__, exc)
-            logger.debug("%s 导入详情", self.name, exc_info=True)
-            return False
-
-        import uvicorn
-
-        config = uvicorn.Config(
-            app,
-            host=self.host,
-            port=self.port,
-            log_level=os.getenv("LOG_LEVEL", "info").lower(),
-            access_log=False,
-        )
-        self.server = uvicorn.Server(config)
-        self.thread = threading.Thread(
-            target=self.server.run, name=f"{self.name.lower()}-service", daemon=True
-        )
-        self.thread.start()
-
-        if not _wait_for_server(self.url + "/health", timeout=60.0):
-            logger.error("❌ %s 服务启动超时（%s）", self.name, self.url)
-            self.stop()
-            return False
-
-        logger.info("🎙 %s 服务已就绪: %s", self.name, self.url)
-        return True
+            logger.error("❌ %s 子进程启动失败: %s", self.name, exc)
+        self.stop()
+        return False
 
     def stop(self) -> None:
-        if self.server is not None:
-            self.server.should_exit = True
-        if self.thread is not None and self.thread.is_alive():
-            self.thread.join(timeout=8)
+        if self.process is not None:
+            if self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=5)
+            self.process = None
+        if self.log_file is not None:
+            self.log_file.close()
+            self.log_file = None
 
 
 class VoiceServices:
