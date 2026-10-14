@@ -86,6 +86,7 @@ logger = logging.getLogger(__name__)
 async def _seed_question_bank():
     """从种子数据库导入题库数据（仅在 question_bank 表为空时执行）"""
     import json
+    from datetime import datetime
 
     from sqlalchemy import func, select
 
@@ -100,7 +101,7 @@ async def _seed_question_bank():
     async with async_session_factory() as session:
         # 检查是否已导入过
         result = await session.execute(select(func.count()).select_from(QuestionBankItem))
-        if result.scalar() and result.scalar() > 0:
+        if (result.scalar() or 0) > 0:
             return
 
         # 从种子 DB 读取（同步 sqlite3，只读）
@@ -131,8 +132,8 @@ async def _seed_question_bank():
                 expected_answer=row[8],
                 is_public=bool(row[9]) if row[9] is not None else False,
                 usage_count=row[10] or 0,
-                created_at=row[11],
-                updated_at=row[12],
+                created_at=datetime.fromisoformat(row[11]) if row[11] else None,
+                updated_at=datetime.fromisoformat(row[12]) if row[12] else None,
             )
             session.add(item)
 
