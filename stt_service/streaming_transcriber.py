@@ -6,8 +6,8 @@
 import asyncio
 import logging
 import os
-import threading
 import sys
+import threading
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
