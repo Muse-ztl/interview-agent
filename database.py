@@ -9,8 +9,8 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from config import settings
 from app_paths import user_data_dir
+from config import settings
 
 # ── 数据库 URL 构建 ──
 # 优先使用 DATABASE_URL，否则根据 DB_TYPE 自动构建
